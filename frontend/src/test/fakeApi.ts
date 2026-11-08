@@ -21,7 +21,9 @@ export function fakeApi(handlers: Record<string, Handler>) {
         );
       }
       const reply = typeof handler === "function" ? handler() : handler;
-      return new Response(JSON.stringify(reply.body), { status: reply.status ?? 200 });
+      const status = reply.status ?? 200;
+      // A 204 response may not carry a body.
+      return new Response(status === 204 ? null : JSON.stringify(reply.body), { status });
     }),
   );
   return {

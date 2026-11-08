@@ -30,6 +30,7 @@ const IMPORTED: Statement = {
   row_count: 4,
   imported_count: 3,
   duplicate_count: 1,
+  categorization_status: "done",
   uploaded_at: "2026-03-21 10:00:00",
 };
 
