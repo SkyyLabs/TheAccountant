@@ -2,7 +2,7 @@
 
 A private, offline personal-finance app that runs only on the owner's Mac. The user uploads statements from any bank or card (PDF, scan or CSV, US or India; several at once) and nothing else: a **local** LLM (Ollama) reads them, code verifies what it read against the statement text, the LLM sorts transactions into categories, and a dashboard shows charts, filters and the categorized transactions (a chat for questions like "how much did I spend on food in March?" comes later). Statements and all results are stored in a local SQLite database so re-uploads are detected and skipped. **Nothing leaves the machine** - no cloud, no login, no telemetry, no network calls except to the local Ollama server.
 
-Out of scope for now: taxes, bank-sync APIs, email parsing, budgets, multi-user, cloud anything. Future work is listed in `PROJECT_STATE.md`.
+Out of scope for now: taxes, bank-sync APIs, email parsing, receipt photos (user decision, 2026-11-08), budgets, multi-user, cloud anything. Future work is listed in `PROJECT_STATE.md`.
 
 ## Start and end of every session
 

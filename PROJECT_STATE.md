@@ -172,7 +172,6 @@ The user found the app too rigid and old-fashioned: no bank picker, account form
 - **When development is done (user request, 2026-11-08):** add a Read deny rule for real statements back to `.claude/settings.json`. It was removed because `Read(./statements/**)` also matched `backend/app/statements/` and blocked the parser code. Re-add it in a form that only covers a root-level folder and confirm `backend/app/statements/` stays readable.
 
 1. **M6 - Chat:** fixed query tools over transactions; answers cite the filters used.
-2. **M7 - Receipt photos:** `llama3.2-vision` (scanned statements are already handled by Docling + Vision OCR in M3b).
 
 ## Future work
 
