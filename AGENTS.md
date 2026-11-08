@@ -93,7 +93,7 @@ Domain detail lives in focused files. **Read the relevant one before editing tha
 `feature/*` → `dev` (development) → `stage` (testing) → `prod` (release). Branch from `dev`; never commit directly to `stage` or `prod`; promote only through PRs. Small PRs split at natural seams; do not stack branches on unmerged PRs. Full rules: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 - **Commits:** conventional, lowercase type, imperative, first line under 72 chars. Types: `feat` `fix` `refactor` `docs` `test` `chore` `style` `perf` `build` `ci`.
-- **No AI attribution:** never add a `Co-Authored-By` trailer (or any AI attribution line) to commits.
+- **No AI attribution:** never add a `Co-Authored-By` trailer to commits, and never add a "🤖 Generated with Claude Code" line (or any AI attribution line) to PR descriptions, issues or comments.
 - **No em dashes** in anything written: commits, PRs, docs, code comments, UI copy. Use a colon, comma, parentheses or a plain hyphen.
 - **Merging into `stage` or `prod`** happens only when the user explicitly asks.
 

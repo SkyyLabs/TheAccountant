@@ -83,6 +83,9 @@ def main() -> int:
         if "co-authored-by" in normalized:
             ask("message contains a Co-Authored-By trailer (never add AI attribution)")
             return 0
+        if "generated with [claude code]" in normalized or "generated with claude code" in normalized:
+            ask("message contains a 'Generated with Claude Code' line (never add AI attribution)")
+            return 0
         if "\u2014" in command:
             ask("message contains an em dash (never use em dashes)")
             return 0
