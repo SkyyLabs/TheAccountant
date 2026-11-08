@@ -298,3 +298,31 @@ def test_pdf_text_reaches_the_model_with_its_columns(client, upload):
 
 def test_unknown_import_is_not_found(client):
     assert client.get("/api/imports/999").json()["error"]["code"] == "import_not_found"
+
+
+def test_digits_from_the_middle_of_an_account_number_are_not_its_last_four(client, upload):
+    content = CHASE_MARCH_CSV.replace(
+        b"Chase card ending 4410", b"Chase Account Number: 000000111114321"
+    )
+
+    result = upload(
+        content,
+        accounts=[account_answer(bank_name="Chase", last4="1432")],
+        transactions=CHASE_MARCH_TRANSACTIONS,
+    )
+
+    assert result["statements"][0]["account_name"] == "Account"
+
+
+def test_the_real_last_four_of_an_account_number_is_kept(client, upload):
+    content = CHASE_MARCH_CSV.replace(
+        b"Chase card ending 4410", b"Chase Account Number: 000000111114321"
+    )
+
+    result = upload(
+        content,
+        accounts=[account_answer(bank_name="Chase", last4="4321")],
+        transactions=CHASE_MARCH_TRANSACTIONS,
+    )
+
+    assert result["statements"][0]["account_name"] == "••4321"

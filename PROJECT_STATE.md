@@ -165,7 +165,9 @@ The user found the app too rigid and old-fashioned: no bank picker, account form
 
 ## Next tasks
 
-- **Real-model check of R1 (next):** run `qwen3:8b` end to end on synthetic statements (two-account bank PDF, Indian CSV, card PDF, scan): accuracy against the known answers and time per statement.
+- **Real-model check of R1 (done 2026-11-08, synthetic statements, qwen3:8b):** Indian CSV (23 s), card PDF (23 s) and a scanned PDF via OCR (28 s) read exactly and reconciled. The two-account bank PDF (75 s, 11 transactions) found every transaction but flipped one sign ("Transfer From Sav" as money out), reported digits from the middle of the account numbers, and put some rows on the wrong account; both statements were flagged unreconciled. Fixed: last 4 digits must end a printed number. Open:
+  - Ask the model for each row's running balance and check previous + amount = balance in code, flagging the rows (and showing the sign) that break it; this also confirms which account a row belongs to.
+  - "Discover E-Payment" was left Uncategorized (should be Card Payments).
 - **Accuracy review of financial readings (user request, 2026-11-08, after M4):** measure how accurate extraction, layout proposals and reconciliation are, and decide how to handle the gaps listed under M3b and M3c (wrapped descriptions, card sign ties, `Cr` card balances, layout proposal latency). Synthetic test layouts only so far; real-statement checks need the user.
 - **When development is done (user request, 2026-11-08):** add a Read deny rule for real statements back to `.claude/settings.json`. It was removed because `Read(./statements/**)` also matched `backend/app/statements/` and blocked the parser code. Re-add it in a form that only covers a root-level folder and confirm `backend/app/statements/` stays readable.
 

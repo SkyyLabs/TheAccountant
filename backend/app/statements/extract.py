@@ -32,6 +32,9 @@ ATTEMPTS = 2
 PERIOD_SLACK = timedelta(days=31)
 CURRENCIES = ("USD", "INR")
 _MONEY = re.compile(r"\d[\d,]*\.\d{2}")
+# The last 4 digits of a printed account or card number: the end of a digit run (or of a
+# masked number like ****1234), not any 4 digits inside a longer number.
+_NUMBER_ENDING = re.compile(r"(?<![\d.,])\d*?(\d{4})(?![\d.,]*\d)")
 
 STATEMENT_SYSTEM = """You read bank and credit-card statements of a person in the US or India.
 From the statement text, list each account it covers (one PDF can cover checking and savings,
@@ -210,12 +213,13 @@ def _accounts(answer: dict, text: str) -> list[Account]:
                 balances.append(parse_amount(str(raw).replace("−", "-"), currency))
             else:
                 balances.append(None)
+        endings = {match.group(1) for match in _NUMBER_ENDING.finditer(text)}
         accounts.append(
             Account(
                 # Names and numbers the statement does not contain were made up: dropped.
                 bank_name=name if name and name.lower() in lowered else None,
                 account_last4=last4
-                if isinstance(last4, str) and re.fullmatch(r"\d{4}", last4) and last4 in text
+                if isinstance(last4, str) and re.fullmatch(r"\d{4}", last4) and last4 in endings
                 else None,
                 account_type="credit_card" if item.get("account_type") == "credit_card" else "bank",
                 currency=currency,
