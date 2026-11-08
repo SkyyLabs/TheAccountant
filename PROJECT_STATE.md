@@ -5,7 +5,7 @@
 > The code is authoritative. If this file and the code disagree, fix this file.
 
 **Last updated:** 2026-11-07
-**Current milestone:** M3 - PDF statements
+**Current milestone:** M3 - PDF statements (M3c: LLM layout and reconciliation)
 **Next milestone:** M4 - Categorization
 **Default branch:** `dev`
 **Agent instructions:** synced from LLMTemplates (sky1502/LLMTemplates) `c1ace50` on 2026-11-07
@@ -77,6 +77,14 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - Verified: `make verify` (137 backend tests; frontend 20 tests, typecheck, lint, build). Mutation checks (never saves, saves before unlock, ignores remember, no saved-password fallback, no ask-again, repeated header kept, remember off by default, preview remembers) each fail a test.
 - Not verified: against the real macOS Keychain (would write a real entry), or real bank PDFs. PDF statements are `unverifiable` until M3b extracts balances.
 
+### M3b - Docling and word-position PDF reading
+- `statements/pdf.py` reads PDFs with three readers in order: pdfplumber ruled tables, Docling tables (layout + TableFormer models), then word positions (lines grouped by height, words placed in the column whose header they sit under; words from the text layer, or macOS Vision OCR via `ocrmac` for scans). Lines outside the table become one-cell rows, so balance lines are kept for reconciliation. Encrypted PDFs are decrypted in memory with pypdfium2 before any reader.
+- Without the models, digital text-only PDFs still work through word positions; `pdf_ocr_unavailable` is returned only when nothing found a table and Docling was missing.
+- `make models` downloads the layout and table models (669 MB) once into gitignored `models/docling`; runtime is offline (`HF_HUB_OFFLINE=1`, telemetry off, explicit `artifacts_path`). `make setup` installs the `ocr` extra (`docling[ocrmac]` 2.148.0, pulls torch); CI installs `dev` only.
+- Verified: `make verify` (default suite, no models); `make test-models` 5 Docling tests on synthetic text-only, encrypted and scanned statements, including full imports whose totals equal closing minus opening. Mutation checks (single column, no fallback past missing Docling, Vision y not flipped, column bounds at header starts) each fail a test.
+- Found while probing: Docling's layout model sees no table in sparse synthetic layouts and flattens scans column by column, losing which amount is a debit; the word-position reader covers those. Docling's first run in a process takes about 5-15 s to load models; the converter is cached per process.
+- Not verified: real bank PDFs; wrapped multi-line descriptions (continuation lines have no date, so they are skipped and counted, and the description is truncated).
+
 ---
 
 ## Architecture decisions
@@ -110,7 +118,7 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 
 ## Next tasks
 
-- M3b: opening/closing balance extraction and reconciliation; per-bank PDF profiles for the 8 defaults, and text-only layouts (no ruled tables). Needs layout descriptions from the user (agents cannot read real statements).
+- M3c: LLM-proposed layout for unknown statements (Ollama, JSON schema: columns, date format, balance labels), balance extraction by code, reconciliation; the confirmed layout is saved per bank so later uploads need no LLM. No per-bank layout descriptions from the user (decided 2026-11-08).
 
 - **When development is done (user request, 2026-11-08):** add a Read deny rule for real statements back to `.claude/settings.json`. It was removed because `Read(./statements/**)` also matched `backend/app/statements/` and blocked the parser code. Re-add it in a form that only covers a root-level folder and confirm `backend/app/statements/` stays readable.
 

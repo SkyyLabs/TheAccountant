@@ -20,6 +20,10 @@ dev = [
     "fpdf2==2.9.0",
 ]
 
+ocr = [
+    "docling[ocrmac]==2.148.0; sys_platform == 'darwin'",
+]
+
 [build-system]
 requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
@@ -32,6 +36,7 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["models: needs the Docling models from `make models` (run with make test-models)"]
 addopts = "-q"
 
 [tool.ruff]

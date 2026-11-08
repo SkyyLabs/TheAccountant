@@ -313,7 +313,7 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
                 raise ApiError(422, error.code, str(error)) from None
         attempt = password or passwords.get_password(account["bank_id"])
         try:
-            return pdf.read_rows(data, attempt)
+            return pdf.read_rows(data, attempt, settings.docling_models_path)
         except PdfError as error:
             if error.code == "pdf_password_invalid" and not password:
                 raise ApiError(

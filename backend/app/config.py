@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     llm_model: str = "qwen2.5:7b"
     port: int = 8765
     max_upload_mb: int = 25
+    # Downloaded once by `make models`; Docling never fetches anything at runtime.
+    docling_models_path: Path = REPO_ROOT / "models" / "docling"
 
     @field_validator("ollama_url")
     @classmethod

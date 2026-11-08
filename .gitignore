@@ -42,5 +42,8 @@ secrets.*
 /exports/
 backend/tests/fixtures/real/
 
+# --- Docling models (downloaded by make models) ---
+/models/
+
 # --- OS ---
 .DS_Store

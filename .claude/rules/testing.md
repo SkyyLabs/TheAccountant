@@ -12,7 +12,7 @@ cd frontend && npx vitest run src/components/transactions/Filters.test.tsx   # o
 make verify                                                       # full check sequence, required before claiming done
 ```
 
-Tests need no services: no Ollama, no network, no real database. They use `LLM_PROVIDER=mock` and a temporary SQLite file per test (the `settings` and `client` fixtures in `backend/tests/conftest.py`).
+Tests need no services: no Ollama, no network, no real database. Tests that run Docling are marked `@pytest.mark.models`, excluded from `make test` and CI, and run locally with `make test-models` after `make models`; the default `settings` fixture points Docling at a missing folder so no other test can use the models by accident. They use `LLM_PROVIDER=mock` and a temporary SQLite file per test (the `settings` and `client` fixtures in `backend/tests/conftest.py`).
 
 ## Where tests live and how they are named
 

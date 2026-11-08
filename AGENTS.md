@@ -23,11 +23,13 @@ Bias toward caution over speed. For trivial tasks, use judgment.
 
 
 ```bash
-make setup     # venv on Python 3.12 + backend deps + frontend deps
+make setup     # venv on Python 3.12 + backend deps (with Docling OCR on macOS) + frontend deps
+make models    # one-time download of the Docling layout/table models into models/ (the only internet use)
 make run       # build the UI and serve app + API on http://127.0.0.1:8765
 make dev       # backend with reload on :8765 + Vite dev server on :5173 (proxies /api)
 make build     # build the UI into frontend/dist
-make test      # backend pytest
+make test      # backend pytest (no Docling models needed)
+make test-models # backend tests that run Docling; needs make models
 make verify    # full check sequence - run before claiming any task done
 ```
 
@@ -81,7 +83,7 @@ Domain detail lives in focused files. **Read the relevant one before editing tha
 
 ## Critical invariants (never break)
 
-- **Nothing leaves the machine.** No outbound network calls except `localhost:11434` (Ollama). No cloud LLMs, analytics, CDNs at runtime, or update checks. Server binds `127.0.0.1` only. See `security.md`.
+- **Nothing leaves the machine.** No outbound network calls except `localhost:11434` (Ollama). The one exception is `make models`, run once by the user to download the Docling models; at runtime Docling runs with `HF_HUB_OFFLINE=1` and a local models path. No cloud LLMs, analytics, CDNs at runtime, or update checks. Server binds `127.0.0.1` only. See `security.md`.
 - **The LLM is never the source of an amount or date when a parser can read it.** LLM-extracted values are marked `needs_review`. The chat computes numbers in code; the LLM only phrases the answer. See `statements.md` / `llm-pipeline.md`.
 - **Money is integer minor units (cents/paise) plus a currency code - never floats.** Currencies are never summed together. See `statements.md`.
 - **Date format is per bank** (US `MM/DD`, India `DD/MM`), never guessed per row. See `statements.md`.

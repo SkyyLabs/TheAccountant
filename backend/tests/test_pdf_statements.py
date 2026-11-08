@@ -173,14 +173,65 @@ def test_preview_opens_an_encrypted_pdf_with_its_password(client, statement_pdf)
     assert response.json()["row_count"] == 2
 
 
-def test_pdf_without_tables_says_so(client):
+def text_only_pdf() -> bytes:
+    """Transactions as positioned text with no ruled table, like many bank PDFs."""
     document = FPDF()
     document.add_page()
     document.set_font("Helvetica", size=10)
-    document.cell(0, 6, "03/04/26 UPI-SHARMA KIRANA STORE 1,250.00")
+    document.text(10, 15, "03/04/26 UPI-SHARMA KIRANA STORE 1,250.00")
+    return bytes(document.output())
+
+
+def test_text_only_pdf_is_read_by_word_position_without_the_models(client):
+    document = FPDF()
+    document.add_page()
+    document.set_font("Helvetica", size=8)
+    lines = [
+        ("Date", "Narration", "Withdrawal Amt.", "Deposit Amt."),
+        ("03/04/26", "UPI-SHARMA KIRANA STORE", "1,250.00", ""),
+        ("05/04/26", "SALARY EXAMPLE CORP", "", "1,50,000.00"),
+    ]
+    for line, row in enumerate(lines):
+        for x, cell in zip((10, 35, 100, 140), row, strict=True):
+            document.text(x, 20 + line * 6, cell)
     account_id = hdfc_account(client)
 
-    response = post_pdf(client, account_id, bytes(document.output()))
+    response = post_pdf(client, account_id, bytes(document.output()), mapping=MAPPING)
+
+    assert response.status_code == 201
+    amounts = [t["amount_minor"] for t in client.get("/api/transactions").json()]
+    assert amounts == [15000000, -125000]
+
+
+def test_right_aligned_amount_wider_than_its_header_stays_in_its_column(client):
+    document = FPDF()
+    document.add_page()
+    document.set_font("Helvetica", size=9)
+    document.text(10, 20, "Date")
+    document.text(35, 20, "Narration")
+    document.text(120, 20, "Debit")
+    document.text(160, 20, "Credit")
+    debit_right = 120 + document.get_string_width("Debit")
+    credit_right = 160 + document.get_string_width("Credit")
+    document.text(10, 26, "05/04/26")
+    document.text(35, 26, "SALARY EXAMPLE CORP")
+    document.text(credit_right - document.get_string_width("1,50,000.00"), 26, "1,50,000.00")
+    document.text(10, 32, "06/04/26")
+    document.text(35, 32, "NEFT-EXAMPLE LANDLORD")
+    document.text(debit_right - document.get_string_width("1,25,000.00"), 32, "1,25,000.00")
+    mapping = {**MAPPING, "debit_column": "Debit", "credit_column": "Credit"}
+    account_id = hdfc_account(client)
+
+    post_pdf(client, account_id, bytes(document.output()), mapping=mapping)
+
+    amounts = [t["amount_minor"] for t in client.get("/api/transactions").json()]
+    assert amounts == [-12500000, 15000000]
+
+
+def test_pdf_without_ruled_tables_needs_the_models_when_absent(client):
+    account_id = hdfc_account(client)
+
+    response = post_pdf(client, account_id, text_only_pdf())
 
     assert response.status_code == 422
-    assert response.json()["error"]["code"] == "pdf_no_tables"
+    assert response.json()["error"]["code"] == "pdf_ocr_unavailable"
