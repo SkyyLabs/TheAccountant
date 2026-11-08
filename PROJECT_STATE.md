@@ -5,8 +5,8 @@
 > The code is authoritative. If this file and the code disagree, fix this file.
 
 **Last updated:** 2026-11-07
-**Current milestone:** M1 - App skeleton
-**Next milestone:** M2 - Upload and CSV import
+**Current milestone:** M2 - Upload and CSV import
+**Next milestone:** M3 - PDF statements
 **Default branch:** `dev`
 **Agent instructions:** synced from LLMTemplates (sky1502/LLMTemplates) `c1ace50` on 2026-11-07
 
@@ -36,6 +36,16 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - `Makefile`: `setup`, `run`, `dev`, `test`, `lint`, `verify` (backend only for now).
 - Verified: `make verify` passes (ruff clean, 12 tests). Loopback test mutation-checked (removing the check fails 2 tests). `make run` serves `GET /api/health` on `127.0.0.1:8765` only and creates the gitignored `data/accountant.db`.
 
+### M1b - Frontend shell
+- `frontend/`: Vite 8, React 19, Tailwind 4, react-router 8. Five tabs (Overview, Transactions, Statements, Categories & Rules, Chat), backend status indicator, single API client `src/lib/api.ts`. Vitest + Testing Library.
+- Verified: typecheck clean, 6 tests, production build; status test mutation-checked; bundle makes no external requests.
+
+### M1c - Run, CI and lint
+- `make run` builds the UI and serves it from the backend; client-side routes (`/statements` on reload) get the app shell, unknown `/api/*` keeps the JSON error, files outside `dist` are never served. 6 tests, both guards mutation-checked.
+- `make setup`/`dev`/`verify` cover the frontend; ESLint (typescript-eslint, react-hooks) added; `.env.example` added.
+- `.github/workflows/ci.yml` runs `make setup` + `make verify` on PRs into and pushes to `dev`/`stage`/`prod`.
+- Verified: fresh `make setup` + `make verify` (ruff clean, 18 backend tests, frontend typecheck/lint/6 tests/build). `make run` checked with curl: `/`, `/statements`, `/chat` serve the shell; `/api/health` 200 JSON; `/api/nope` 404 JSON; built asset 200; listener on `127.0.0.1:8765` only. Not verified: visual check in a browser.
+
 ---
 
 ## Architecture decisions
@@ -53,6 +63,7 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 | Money as integer minor units + currency; per-currency totals, no FX | Exact arithmetic; FX rates would need the internet | Floats; converting to one currency |
 | Date format and currency per bank profile | `DD/MM` vs `MM/DD` guessed per row silently swaps day and month | Per-row date detection |
 | PDF passwords remembered per bank in the macOS Keychain (`keyring`) | User asked to remember per bank; Keychain keeps them out of the plaintext DB at no UX cost | Storing in SQLite |
+| TypeScript pinned to 5.9.3 | `typescript-eslint` supports `<6.1`; TS 7 returns when lint tooling supports it | TypeScript 7 without type-aware lint |
 | No database encryption for MVP | Local only; FileVault encrypts the disk | SQLCipher now (see Future work) |
 | Branches: `dev` development, `stage` testing, `prod` release | User's workflow; no hosted deploy, so `prod` = tagged release run day to day | - |
 
@@ -60,21 +71,19 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 
 ## Known issues and accepted technical debt
 
-1. `.env.example` could not be added: the agent deny rule `Read(./.env.*)` in `.claude/settings.json` also matches it. Narrow the rule to real env files, then add it.
+1. `fsevents` (optional macOS file watcher pulled in by Vite) has its install script blocked by npm's default policy. It ships prebuilt and works without it; leave it blocked.
 2. The repository is **public** - real statements, the DB, and exported data must never be committed. `.gitignore` covers `data/`, `*.db`, `statements/`, and `fixtures/real/`; fixtures in git are synthetic only.
 
 ---
 
 ## Next tasks
 
-1. **M0 finish:** merge PR #1 into `dev`. Decide whether to delete the now-unused `main` branch.
-2. **M1 - App skeleton, remaining:** M1b Vite app with the five tabs (Overview, Transactions, Statements, Categories & Rules, Chat); M1c Makefile frontend targets + CI running `make verify` on `dev`/`stage`/`prod`; `.env.example`.
-3. **M2 - Upload and CSV import:** file fingerprint dedupe; bank picker on first upload (defaults: Chase, Discover, Capital One, SoFi, ICICI, HDFC, SBI, Axis, plus "Other"); per-bank currency/date format/account type; CSV import with column mapping saved per bank.
-4. **M3 - PDF statements:** Keychain-backed password per bank, PDF text/table extraction, per-bank profiles for the defaults, LLM-proposed mapping for unknown layouts with user-confirmed preview, reconciliation, transaction-level dedupe.
-5. **M4 - Categorization:** default US and India category sets, rules → stored result → LLM, corrections offered as rules.
-6. **M5 - Transactions and Overview:** filters (date range, category, amount range, account, currency), editable categories, charts by month and category.
-7. **M6 - Chat:** fixed query tools over transactions; answers cite the filters used.
-8. **M7 - Scanned statements and receipt photos:** OCR (Docling) or `llama3.2-vision`.
+1. **M2 - Upload and CSV import:** file fingerprint dedupe; bank picker on first upload (defaults: Chase, Discover, Capital One, SoFi, ICICI, HDFC, SBI, Axis, plus "Other"); per-bank currency/date format/account type; CSV import with column mapping saved per bank.
+2. **M3 - PDF statements:** Keychain-backed password per bank, PDF text/table extraction, per-bank profiles for the defaults, LLM-proposed mapping for unknown layouts with user-confirmed preview, reconciliation, transaction-level dedupe.
+3. **M4 - Categorization:** default US and India category sets, rules → stored result → LLM, corrections offered as rules.
+4. **M5 - Transactions and Overview:** filters (date range, category, amount range, account, currency), editable categories, charts by month and category.
+5. **M6 - Chat:** fixed query tools over transactions; answers cite the filters used.
+6. **M7 - Scanned statements and receipt photos:** OCR (Docling) or `llama3.2-vision`.
 
 ## Future work
 
