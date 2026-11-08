@@ -14,7 +14,7 @@ Applies when touching `backend/app/llm/`, `backend/app/categorize/` and `backend
 
 | Task | LLM role | Code role |
 |---|---|---|
-| Unknown statement layout | Propose a column/field mapping | Apply it, show a preview, save only after user confirms |
+| Statement layout (first upload per account) | Name the header line, columns, amount mode and balance labels (`statements/layout.py`) | Settle header line, date format, card sign and labels against the file; apply to every row; fall back to header heuristics; preview with reconciliation; save only after the user confirms |
 | Categorization | Pick one category from the allowed list (enum in the schema) | Rules first, stored results second, LLM last; store the result |
 | Chat | Choose a query tool and its arguments; phrase the answer | Run the query, compute every number |
 

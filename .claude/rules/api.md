@@ -12,7 +12,7 @@ Applies when touching `backend/app/main.py` and route modules.
 
 - Pydantic models for every request and response body.
 - **One error shape:** `{"error": {"code", "message"}}` for app errors, validation errors and HTTP errors, plus an optional `details` object when the client needs data to recover (the existing statement id on a duplicate, CSV rows and a suggested mapping on `csv_mapping_required`).
-- Status codes: missing resource → 404, duplicate upload → 409 `duplicate_statement` (with the existing statement id), unreadable PDF → 422 `pdf_unreadable`, PDF with no ruled table → 422 `pdf_no_tables`, CSV or PDF needing a column mapping → 422 `csv_mapping_required`, wrong or missing PDF password → 422 with code `pdf_password_required` / `pdf_password_invalid`, payload too large → 413, Ollama unavailable → 503 with code `llm_unavailable`.
+- Status codes: missing resource → 404, duplicate upload → 409 `duplicate_statement` (with the existing statement id), unreadable PDF → 422 `pdf_unreadable`, PDF with no ruled table → 422 `pdf_no_tables`, CSV or PDF needing a column mapping → 422 `csv_mapping_required`, wrong or missing PDF password → 422 with code `pdf_password_required` / `pdf_password_invalid`, payload too large → 413, Ollama unavailable → 503 with code `llm_unavailable` where the LLM is required (chat); the statement layout proposal falls back to heuristics instead (`suggestion_source: "heuristic"`).
 - Raise specific errors; no broad `except` that hides parser failures.
 - Upload size limit enforced in middleware before the body is buffered. `MAX_UPLOAD_MB` default 25.
 - Long work (LLM categorization of a large statement) runs in a background task; the UI polls statement status. Parsing itself is synchronous.

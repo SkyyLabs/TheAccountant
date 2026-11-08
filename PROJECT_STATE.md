@@ -5,8 +5,8 @@
 > The code is authoritative. If this file and the code disagree, fix this file.
 
 **Last updated:** 2026-11-07
-**Current milestone:** M3 - PDF statements (M3c: LLM layout and reconciliation)
-**Next milestone:** M4 - Categorization
+**Current milestone:** M4 - Categorization
+**Next milestone:** M5 - Transactions and Overview
 **Default branch:** `dev`
 **Agent instructions:** synced from LLMTemplates (sky1502/LLMTemplates) `c1ace50` on 2026-11-07
 
@@ -85,6 +85,16 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - Found while probing: Docling's layout model sees no table in sparse synthetic layouts and flattens scans column by column, losing which amount is a debit; the word-position reader covers those. Docling's first run in a process takes about 5-15 s to load models; the converter is cached per process.
 - Not verified: real bank PDFs; wrapped multi-line descriptions (continuation lines have no date, so they are skipped and counted, and the description is truncated).
 
+### M3c - LLM layout proposal and reconciliation
+- `llm/`: provider interface (`base.py`), Ollama provider (stdlib HTTP, JSON-schema `format`, temperature 0, errors normalized to `LlmUnavailable` / `LlmError`, timings logged, never prompts), scripted `MockProvider` for tests, `get_llm_provider()` from `LLM_PROVIDER`.
+- `statements/layout.py`: on the first upload per account the local model names the header line, columns, amount mode and balance labels. Code settles what it can check against the file: header line (row holding the named columns), date format (bank default, then same day/month order, first that parses every row), card sign (most transactions money out), labels (kept only if a balance can be read after them, else known labels such as "Beginning/Ending Balance"). Invalid twice or Ollama down: header heuristics. `csv_mapping_required` details carry `suggestion_source`.
+- `statements/reconciliation.py`: balances read by `parse_amount` after the confirmed labels (opening = first, closing = last, so per-page carried-forward lines work). Bank: opening + transactions = closing; card: previous - transactions = new. Stored on the statement with the difference; shown in the preview before import and in the list.
+- Mapping gains `opening_balance_label` / `closing_balance_label`, saved per account with the columns.
+- Model: `qwen2.5:7b` pulled (4.7 GB).
+- Verified: `make verify` (default suite), `make test-models`. Real `qwen2.5:7b` on 5 synthetic layouts (HDFC with and without balances, Chase card, Discover card, a credit union with "Money Out/Money In" and "Beginning/Ending Balance"): all proposals accepted, 3-5 s each. End to end with real Docling + qwen: a text-only PDF statement proposed, previewed and **reconciled** to the paisa. Mutation checks (card sign, bank day/month order, header correction, label fallback, retry on unavailable, card formula, closing = last match, upload ignoring reconciliation) each fail a test.
+- Found while testing the real model: alone it proposed `DD/MM/YYYY` for Chase dates, was off by one on header lines and usually returned no balance labels. Validation rejected those answers, which is why code now settles those fields.
+- Known gaps: a card file with as many credits as charges keeps the proposed sign (the majority rule cannot decide); Indian card statements with a `Cr` closing balance (credit balance) would read as owed; layout proposal runs inside the upload request (a few seconds to tens of seconds on first upload).
+
 ---
 
 ## Architecture decisions
@@ -118,7 +128,6 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 
 ## Next tasks
 
-- M3c: LLM-proposed layout for unknown statements (Ollama, JSON schema: columns, date format, balance labels), balance extraction by code, reconciliation; the confirmed layout is saved per bank so later uploads need no LLM. No per-bank layout descriptions from the user (decided 2026-11-08).
 
 - **When development is done (user request, 2026-11-08):** add a Read deny rule for real statements back to `.claude/settings.json`. It was removed because `Read(./statements/**)` also matched `backend/app/statements/` and blocked the parser code. Re-add it in a form that only covers a root-level folder and confirm `backend/app/statements/` stays readable.
 

@@ -41,6 +41,10 @@ class CsvMapping(BaseModel):
     debit_column: str | None = None
     credit_column: str | None = None
     date_format: str
+    # Text of the lines that carry the statement balances, e.g. "Opening Balance". Labels,
+    # not line numbers, so the mapping still fits next month's statement.
+    opening_balance_label: str | None = None
+    closing_balance_label: str | None = None
 
     @field_validator("date_format")
     @classmethod

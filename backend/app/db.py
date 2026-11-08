@@ -117,7 +117,8 @@ _STATEMENT_COLUMNS = (
     "SELECT statements.id, statements.account_id, accounts.bank_id, banks.name AS bank_name,"
     " accounts.name AS account_name,"
     " statement_files.filename, statements.currency, period_start, period_end,"
-    " reconciliation_status, row_count, imported_count, duplicate_count,"
+    " reconciliation_status, opening_balance_minor, closing_balance_minor,"
+    " reconciliation_difference_minor, row_count, imported_count, duplicate_count,"
     " statement_files.uploaded_at"
     " FROM statements"
     " JOIN statement_files ON statement_files.id = statements.file_id"
@@ -157,7 +158,10 @@ def create_statement(
     currency: str,
     period_start: str | None,
     period_end: str | None,
+    opening_balance_minor: int | None,
+    closing_balance_minor: int | None,
     reconciliation_status: str,
+    reconciliation_difference_minor: int | None,
     transactions: list[dict],
 ) -> int:
     """Store the file, the statement and its transactions in one database transaction.
@@ -174,15 +178,19 @@ def create_statement(
         ).lastrowid
         statement_id = connection.execute(
             "INSERT INTO statements (file_id, account_id, currency, period_start, period_end,"
-            " reconciliation_status, row_count, imported_count, duplicate_count)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)",
+            " opening_balance_minor, closing_balance_minor, reconciliation_status,"
+            " reconciliation_difference_minor, row_count, imported_count, duplicate_count)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)",
             (
                 file_id,
                 account_id,
                 currency,
                 period_start,
                 period_end,
+                opening_balance_minor,
+                closing_balance_minor,
                 reconciliation_status,
+                reconciliation_difference_minor,
                 len(transactions),
             ),
         ).lastrowid
