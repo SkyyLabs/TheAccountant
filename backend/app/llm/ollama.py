@@ -28,6 +28,8 @@ class OllamaProvider:
                 ],
                 "format": schema,
                 "stream": False,
+                # Reasoning models (qwen3) answer directly; the schema already constrains them.
+                "think": False,
                 "options": {"temperature": 0},
             }
         ).encode()

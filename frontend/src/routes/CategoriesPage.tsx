@@ -5,10 +5,8 @@ import type { Category, MatchType, Region, Rule } from "../types/api";
 
 const REGION_LABEL: Record<Region, string> = { both: "US and India", US: "US", IN: "India" };
 
-const fieldClass =
-  "mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-900";
-const buttonClass =
-  "rounded border border-slate-300 px-3 py-1 text-sm font-medium disabled:opacity-50 dark:border-slate-700";
+const fieldClass = "field mt-1";
+const buttonClass = "button-primary";
 
 function errorText(caught: unknown, fallback: string): string {
   return caught instanceof ApiError ? caught.message : fallback;
@@ -95,9 +93,11 @@ export function CategoriesPage() {
     }, "Could not delete the rule");
 
   return (
-    <section>
-      <h1 className="text-2xl font-semibold">Categories & Rules</h1>
-      <p className="mt-2 max-w-prose text-slate-600 dark:text-slate-400">
+    <div className="animate-rise space-y-6">
+      <section>
+      <p className="text-sm text-muted-foreground">Settings</p>
+      <h1 className="mt-1 text-3xl font-semibold tracking-tight">Categories & rules</h1>
+      <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
         Rules run before the local model: a transaction whose merchant matches a rule gets its
         category without asking the model. Rules never change a category you set by hand.
       </p>
@@ -105,13 +105,15 @@ export function CategoriesPage() {
       {message && (
         <p
           role={message.kind === "error" ? "alert" : "status"}
-          className={`mt-3 text-sm ${message.kind === "error" ? "text-red-700 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"}`}
+          className={`mt-3 text-sm ${message.kind === "error" ? "text-destructive" : "text-success"}`}
         >
           {message.text}
         </p>
       )}
 
-      <h2 className="mt-6 text-lg font-semibold">Rules</h2>
+      </section>
+      <section className="card p-6">
+      <h2 className="font-medium">Rules</h2>
       <form
         className="mt-2 grid gap-2 sm:grid-cols-5 sm:items-end"
         onSubmit={(event) => {
@@ -120,7 +122,7 @@ export function CategoriesPage() {
         }}
       >
         <div>
-          <label htmlFor="rule-match" className="block text-sm font-medium">
+          <label htmlFor="rule-match" className="block text-sm font-medium text-muted-foreground">
             Match
           </label>
           <select
@@ -134,7 +136,7 @@ export function CategoriesPage() {
           </select>
         </div>
         <div>
-          <label htmlFor="rule-pattern" className="block text-sm font-medium">
+          <label htmlFor="rule-pattern" className="block text-sm font-medium text-muted-foreground">
             Merchant text
           </label>
           <input
@@ -146,7 +148,7 @@ export function CategoriesPage() {
           />
         </div>
         <div>
-          <label htmlFor="rule-category" className="block text-sm font-medium">
+          <label htmlFor="rule-category" className="block text-sm font-medium text-muted-foreground">
             Category
           </label>
           <select
@@ -164,7 +166,7 @@ export function CategoriesPage() {
           </select>
         </div>
         <div>
-          <label htmlFor="rule-priority" className="block text-sm font-medium">
+          <label htmlFor="rule-priority" className="block text-sm font-medium text-muted-foreground">
             Priority (higher first)
           </label>
           <input
@@ -180,13 +182,13 @@ export function CategoriesPage() {
         </button>
       </form>
       {rules.length === 0 ? (
-        <p className="mt-2 text-sm text-slate-600 dark:text-slate-400">
+        <p className="mt-4 text-sm text-muted-foreground">
           No rules yet. Correct a category in Transactions to be offered one.
         </p>
       ) : (
         <table className="mt-3 w-full text-sm">
           <thead>
-            <tr className="text-left text-slate-500">
+            <tr className="text-left text-muted-foreground">
               <th scope="col" className="py-1 pr-3 font-medium">Merchant</th>
               <th scope="col" className="py-1 pr-3 font-medium">Category</th>
               <th scope="col" className="py-1 pr-3 font-medium">Priority</th>
@@ -197,7 +199,7 @@ export function CategoriesPage() {
           </thead>
           <tbody>
             {rules.map((rule) => (
-              <tr key={rule.id} className="border-t border-slate-100 dark:border-slate-800">
+              <tr key={rule.id} className="border-t">
                 <td className="py-1 pr-3">
                   {rule.match_type === "exact" ? "is" : "contains"} “{rule.pattern}”
                 </td>
@@ -208,7 +210,7 @@ export function CategoriesPage() {
                     type="button"
                     onClick={() => removeRule(rule)}
                     aria-label={`Delete the rule for ${rule.pattern}`}
-                    className="text-sm text-red-700 dark:text-red-400"
+                    className="text-sm text-destructive"
                   >
                     Delete
                   </button>
@@ -219,8 +221,10 @@ export function CategoriesPage() {
         </table>
       )}
 
-      <h2 className="mt-8 text-lg font-semibold">Categories</h2>
-      <p className="mt-1 max-w-prose text-sm text-slate-600 dark:text-slate-400">
+      </section>
+      <section className="card p-6">
+      <h2 className="font-medium">Categories</h2>
+      <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
         Tick “Not spending” for money moving between your own accounts (transfers, card
         payments). The Overview leaves those out so nothing is counted twice.
       </p>
@@ -232,7 +236,7 @@ export function CategoriesPage() {
         }}
       >
         <div>
-          <label htmlFor="category-name" className="block text-sm font-medium">
+          <label htmlFor="category-name" className="block text-sm font-medium text-muted-foreground">
             New category
           </label>
           <input
@@ -243,7 +247,7 @@ export function CategoriesPage() {
           />
         </div>
         <div>
-          <label htmlFor="category-region" className="block text-sm font-medium">
+          <label htmlFor="category-region" className="block text-sm font-medium text-muted-foreground">
             Used for
           </label>
           <select
@@ -261,7 +265,7 @@ export function CategoriesPage() {
           Add category
         </button>
       </form>
-      <ul className="mt-3 divide-y divide-slate-100 text-sm dark:divide-slate-800">
+      <ul className="mt-3 divide-y text-sm">
         {categories.map((category) => (
           <li key={category.id} className="flex flex-wrap items-center gap-3 py-1.5">
             {renaming?.id === category.id ? (
@@ -276,21 +280,21 @@ export function CategoriesPage() {
                   aria-label={`New name for ${category.name}`}
                   value={renaming.name}
                   onChange={(event) => setRenaming({ id: category.id, name: event.target.value })}
-                  className="rounded border border-slate-300 bg-white px-2 py-0.5 dark:border-slate-700 dark:bg-slate-900"
+                  className="field py-1"
                 />
                 <button type="submit" className={buttonClass}>
                   Save
                 </button>
-                <button type="button" onClick={() => setRenaming(null)} className="px-2">
+                <button type="button" onClick={() => setRenaming(null)} className="button-quiet">
                   Cancel
                 </button>
               </form>
             ) : (
               <span className="min-w-40 font-medium">{category.name}</span>
             )}
-            <span className="text-slate-500">{REGION_LABEL[category.region]}</span>
+            <span className="text-muted-foreground">{REGION_LABEL[category.region]}</span>
             {category.name !== "Uncategorized" && (
-              <label className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
+              <label className="flex items-center gap-1 text-muted-foreground">
                 <input
                   type="checkbox"
                   checked={category.excluded_from_spending}
@@ -305,7 +309,7 @@ export function CategoriesPage() {
                   type="button"
                   onClick={() => setRenaming({ id: category.id, name: category.name })}
                   aria-label={`Rename ${category.name}`}
-                  className="text-blue-700 dark:text-blue-400"
+                  className="text-primary"
                 >
                   Rename
                 </button>
@@ -313,7 +317,7 @@ export function CategoriesPage() {
                   type="button"
                   onClick={() => removeCategory(category)}
                   aria-label={`Delete ${category.name}`}
-                  className="text-red-700 dark:text-red-400"
+                  className="text-destructive"
                 >
                   Delete
                 </button>
@@ -322,6 +326,7 @@ export function CategoriesPage() {
           </li>
         ))}
       </ul>
-    </section>
+      </section>
+    </div>
   );
 }

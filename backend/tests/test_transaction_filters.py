@@ -1,57 +1,37 @@
-import json
-from pathlib import Path
-
 import pytest
-
-FIXTURES = Path(__file__).parent / "fixtures" / "statements"
-CHASE_MAPPING = {
-    "header_row": 0,
-    "date_column": "Transaction Date",
-    "description_column": "Description",
-    "amount_mode": "signed",
-    "amount_column": "Amount",
-    "date_format": "MM/DD/YYYY",
-}
-HDFC_MAPPING = {
-    "header_row": 3,
-    "date_column": "Date",
-    "description_column": "Narration",
-    "amount_mode": "debit_credit",
-    "debit_column": "Withdrawal Amt.",
-    "credit_column": "Deposit Amt.",
-    "date_format": "DD/MM/YY",
-}
+from conftest import (
+    CHASE_MARCH_ACCOUNT,
+    CHASE_MARCH_CSV,
+    CHASE_MARCH_TRANSACTIONS,
+    HDFC_APRIL_ACCOUNT,
+    HDFC_APRIL_CSV,
+    HDFC_APRIL_TRANSACTIONS,
+)
 
 
 @pytest.fixture
-def two_currencies(client):
-    """Chase card in USD (March 2026) and HDFC savings in INR (April 2026)."""
-    chase = client.post(
-        "/api/accounts", json={"bank_id": "chase", "type": "credit_card", "name": "Card"}
-    ).json()["id"]
-    hdfc = client.post(
-        "/api/accounts", json={"bank_id": "hdfc", "type": "bank", "name": "Savings"}
-    ).json()["id"]
-    client.app.state.llm.script(
-        {
+def two_currencies(client, upload):
+    """Chase card in USD (March 2026), categorized; HDFC savings in INR (April 2026), not."""
+    chase = upload(
+        CHASE_MARCH_CSV,
+        accounts=[CHASE_MARCH_ACCOUNT],
+        transactions=CHASE_MARCH_TRANSACTIONS,
+        categories={
             "items": [
                 {"index": 0, "category": "Groceries", "confidence": 0.9},
                 {"index": 1, "category": "Transport", "confidence": 0.9},
                 {"index": 2, "category": "Card Payments", "confidence": 0.9},
                 {"index": 3, "category": "Shopping", "confidence": 0.9},
             ]
-        }
+        },
     )
-    for account_id, fixture, mapping in [
-        (chase, "chase/card_2026_03.csv", CHASE_MAPPING),
-        (hdfc, "hdfc/savings_2026_04.csv", HDFC_MAPPING),
-    ]:
-        client.post(
-            "/api/statements",
-            data={"account_id": str(account_id), "mapping": json.dumps(mapping)},
-            files={"file": ("s.csv", (FIXTURES / fixture).read_bytes(), "text/csv")},
-        )
-    return {"chase": chase, "hdfc": hdfc}
+    hdfc = upload(
+        HDFC_APRIL_CSV, accounts=[HDFC_APRIL_ACCOUNT], transactions=HDFC_APRIL_TRANSACTIONS
+    )
+    return {
+        "chase": chase["statements"][0]["account_id"],
+        "hdfc": hdfc["statements"][0]["account_id"],
+    }
 
 
 def descriptions(client, **params) -> list[str]:

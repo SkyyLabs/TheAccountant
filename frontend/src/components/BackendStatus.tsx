@@ -5,9 +5,9 @@ import { api } from "../lib/api";
 type Status = "checking" | "online" | "offline";
 
 const LABELS: Record<Status, string> = {
-  checking: "Checking backend…",
-  online: "Backend online",
-  offline: "Backend offline: run make run",
+  checking: "Connecting…",
+  online: "Private · offline",
+  offline: "App server is not running",
 };
 
 export function BackendStatus() {
@@ -26,9 +26,9 @@ export function BackendStatus() {
 
   // Text plus a dot: never colour alone.
   const dot =
-    status === "online" ? "bg-emerald-500" : status === "offline" ? "bg-red-500" : "bg-slate-400";
+    status === "online" ? "bg-success" : status === "offline" ? "bg-destructive" : "bg-muted-foreground";
   return (
-    <span role="status" className="flex items-center gap-2 text-sm">
+    <span role="status" className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
       <span aria-hidden="true" className={`h-2 w-2 rounded-full ${dot}`} />
       {LABELS[status]}
     </span>

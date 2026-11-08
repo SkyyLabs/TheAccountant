@@ -5,8 +5,8 @@
 > The code is authoritative. If this file and the code disagree, fix this file.
 
 **Last updated:** 2026-11-07
-**Current milestone:** M6 - Chat
-**Next milestone:** M7 - Receipt photos
+**Current milestone:** R1 - LLM-first reading and redesign (real-model check pending)
+**Next milestone:** accuracy review on real statements, then M6 - Chat
 **Default branch:** `dev`
 **Agent instructions:** synced from LLMTemplates (sky1502/LLMTemplates) `c1ace50` on 2026-11-07
 
@@ -121,6 +121,14 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - Verified: `make verify` (214 backend, 42 frontend tests, build). Mutation checks (spending filter ignored, uncategorized dropped from spending, transfers counted by default, categories mixed across currencies, totals from another currency) each fail a test.
 - Not verified: the charts rendered in a browser (jsdom does not lay out SVG; tests check the table alternatives).
 
+### R1 - LLM-first reading and the redesigned app (user direction, 2026-11-08)
+The user found the app too rigid and old-fashioned: no bank picker, account form or column mapping; upload any statements from any banks and cards, the local AI reads and categorizes them, a modern dashboard. The per-format work (column mapping M2b, layout proposal M3c, per-bank text reader in closed PR #15) was replaced.
+- Backend: `POST /api/imports` (file, optional PDF password) -> background import with progress (`statement_files` gains status, progress, error, rejected count: migration `0007`). `pdf.py` gives text (column gaps kept; Docling + Vision OCR for scans), `extract.py` has the LLM extract accounts, period, balances and transactions chunk by chunk, and checks every value against the text (amount present, date in period, bank/number/balances present), flagging failures; `importer.py` stores one statement per account (migration `0006`, migration runner now checks foreign keys around table rebuilds), reconciles, categorizes, then marks the import done. Removed: column mapping, layout proposal, date-format parsing, PDF table readers, old upload/preview/bank/account-creation endpoints, with their tests.
+- Model: `qwen3:8b` default (`think: false`). Measured before the rework on 6 synthetic statements and 30 labelled merchants: qwen3:8b best (identity and layout 6/6, categories 30/30 after prompt hints for confusable categories; hints were tuned on that set, so expect lower on real data), qwen2.5:7b 5/6 and 23/30, llama3.1:8b 4/6 and 25/30.
+- Frontend redesign (design language from the WatchIt dashboard: semantic oklch tokens, indigo primary, ringed cards, Geist, lucide icons, generous spacing): welcome screen (2.5 s), upload page (many files, live progress per file, inline password, auto-open dashboard), dashboard (per-currency metrics, spending donut with legend table, monthly bars, quick ranges, search and filter chips, editable transactions table with rule offers, "check this" flags), restyled Categories. Removed: Overview, Transactions and Statements pages, mapping form, bank picker. New dependencies: `lucide-react` 1.61.0 and `@fontsource-variable/geist` 5.3.0 (pinned to releases older than two weeks).
+- Verified: `make verify`; `make test-models` (OCR of a synthetic scan). Mutation checks on the checks (amount not checked, period not checked, made-up bank kept, made-up balance kept, direction ignored, rejections not counted, failed import blocking retry, remember ignored) and on the UI (charts counting transfers, currencies mixed, remember off by default, redirect after only failures, welcome not waiting) each fail a test; "remember ignored" and "redirect after only failures" survived first and their tests were fixed.
+- Not verified yet: the real model reading real or synthetic statements end to end (next step), visual check in a browser.
+
 ---
 
 ## Architecture decisions
@@ -139,7 +147,9 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 | Date format and currency per bank profile | `DD/MM` vs `MM/DD` guessed per row silently swaps day and month | Per-row date detection |
 | PDF passwords remembered per bank in the macOS Keychain (`keyring`) | User asked to remember per bank; Keychain keeps them out of the plaintext DB at no UX cost | Storing in SQLite |
 | Spending excludes categories marked `excluded_from_spending` (Transfers, Card Payments) | A card payment is money out of the bank and money in on the card; counting it would double the purchases | Counting every transaction |
-| No shadcn/ui yet; plain semantic tables and inline forms | M2c needed no dialog, popover or combobox; avoids Radix, clsx and tailwind-merge until a screen does | Adding shadcn with the first table |
+| The LLM extracts transactions; code verifies each value against the statement text | User direction: the LLM is a helping hand in the core, not per-format code; verification and reconciliation keep numbers honest | Deterministic per-layout parsers with an LLM only for unknown layouts (M2-M3, PR #15) |
+| `qwen3:8b` as the default model | Best in a measured comparison (see R1); fits 18 GB | qwen2.5:7b, llama3.1:8b |
+| No shadcn/ui; design tokens and a few component classes in `index.css` (WatchIt's look) | Same look as the user's other app without the component library | shadcn/ui |
 | TypeScript pinned to 5.9.3 | `typescript-eslint` supports `<6.1`; TS 7 returns when lint tooling supports it | TypeScript 7 without type-aware lint |
 | No database encryption for MVP | Local only; FileVault encrypts the disk | SQLCipher now (see Future work) |
 | Branches: `dev` development, `stage` testing, `prod` release | User's workflow; no hosted deploy, so `prod` = tagged release run day to day | - |
@@ -155,6 +165,7 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 
 ## Next tasks
 
+- **Real-model check of R1 (next):** run `qwen3:8b` end to end on synthetic statements (two-account bank PDF, Indian CSV, card PDF, scan): accuracy against the known answers and time per statement.
 - **Accuracy review of financial readings (user request, 2026-11-08, after M4):** measure how accurate extraction, layout proposals and reconciliation are, and decide how to handle the gaps listed under M3b and M3c (wrapped descriptions, card sign ties, `Cr` card balances, layout proposal latency). Synthetic test layouts only so far; real-statement checks need the user.
 - **When development is done (user request, 2026-11-08):** add a Read deny rule for real statements back to `.claude/settings.json`. It was removed because `Read(./statements/**)` also matched `backend/app/statements/` and blocked the parser code. Re-add it in a form that only covers a root-level folder and confirm `backend/app/statements/` stays readable.
 

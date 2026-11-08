@@ -1,44 +1,37 @@
-# Statement parsing, money and dates
+# Statements: reading, money and checks
 
-Applies when touching `backend/app/statements/` - upload, fingerprinting, PDF unlock, parsing, reconciliation, dedupe. This is where silent correctness bugs live.
+Applies when touching `backend/app/statements/` - import flow, text extraction, LLM reading and its checks, money, reconciliation, dedupe. This is where silent correctness bugs live.
+
+## Reading: the LLM extracts, code verifies (user decision, 2026-11-08)
+
+- No per-bank, per-layout or per-format code. Any bank or card works the same way: file -> text (`pdf.py`) -> LLM extraction (`extract.py`) -> checks -> storage (`importer.py`).
+- `pdf.py` keeps the text layer's column gaps (` | `) so the model can tell debit from credit columns; scans go through Docling with macOS Vision OCR (local models only, see `security.md`).
+- `extract.py` asks for the accounts and period first, then the transactions chunk by chunk (`CHUNK_CHARS`). Amounts come back as printed text and are parsed by `parse_amount`; direction (`in` / `out`) sets the sign.
+- Checks, all against the source text, never the model's word:
+  - an amount must be a money value that appears in the chunk it came from;
+  - a date must be a real ISO date within the statement period (31 days slack) when a period is known;
+  - a bank name and last 4 digits must appear in the statement, otherwise they are dropped ("Unknown bank", "Account");
+  - an opening or closing balance must appear in the statement, otherwise it is ignored.
+- A transaction failing a check is stored with `needs_review = 1`. One without a usable date or amount cannot be stored and is counted in the import's `rejected_count`.
 
 ## Money
 
-- Amounts are **integers in minor units** (cents, paise) plus an ISO currency code (`USD`, `INR`). Never `float`. Parse with `Decimal`, then convert.
-- Sign convention everywhere after parsing: **negative = money out, positive = money in**. Bank statements and card statements use opposite conventions in their source columns (a card "charge" is positive in the file but money out). Normalize in the bank profile, once.
-- **Never sum across currencies.** Aggregates group by currency. No FX conversion (it would need the internet).
-- Indian formatting (`1,23,456.78`), `Cr`/`Dr` suffixes, parenthesized negatives and separate debit/credit columns are all parsed by the profile, not guessed downstream.
+- Amounts are **integers in minor units** (cents, paise) plus an ISO currency code (`USD`, `INR`). Never `float`. Parse with `parse_amount` (Decimal), never by hand.
+- Sign convention everywhere after reading: **negative = money out, positive = money in**.
+- **Never sum across currencies.** Aggregates group by currency. No FX conversion.
 
-## Dates
+## Reconciliation (every statement, per account)
 
-- The date format is a property of the **bank profile** (US banks `MM/DD/YYYY`, Indian banks `DD/MM/YYYY` or `DD-Mon-YY`). Never infer it per row - `03/04` is valid both ways and a wrong guess silently swaps day and month.
-- On the first upload for an account, `statements/layout.py` proposes one format for the **whole file**: the bank's default first, then formats with the same day/month order, keeping the first that parses every row. The user confirms it in the preview and it is saved on the account; later uploads use the saved format only.
-- Store dates as ISO `YYYY-MM-DD`. Statement periods (start/end) are stored on the statement.
-
-## Banks and profiles
-
-- Default banks: **US** Chase, Discover, Capital One, SoFi · **India** ICICI, HDFC, SBI, Axis. Each has a profile: id, display name, country, currency, date format, account types (bank / credit card), and parsing rules for CSV and PDF layouts.
-- Any other bank is supported through the generic path: the parser extracts candidate tables/rows, the LLM proposes a field mapping, the user confirms a preview, and the confirmed mapping is saved as a new profile. The next upload from that bank uses the saved profile with no LLM call.
-- The first upload for a bank asks which bank it is and, if the PDF is encrypted, the password (see `security.md`).
-
-## Extraction
-
-- Deterministic first: CSV columns, PDF text and tables (`pdfplumber`/`pypdf`). The LLM is used only to map an unknown layout, never as the source of an amount or date when a parser can read it.
-- Any value that came from the LLM is stored with `source = 'llm'` and `needs_review = 1` until the user confirms it.
-- Keep the raw extracted row alongside the normalized transaction so re-parsing after a parser fix needs no re-upload.
-
-## Reconciliation (every statement)
-
-- Bank: `opening_balance + sum(transactions) == closing_balance`.
-- Card: `previous_balance + charges − payments − credits == new_balance` (in the normalized sign convention).
-- A mismatch marks the statement `unreconciled` with the difference shown in the UI. Never silently accept or "fix" a mismatch.
-- If a statement has no balances, mark it `unverifiable`, not reconciled.
+- Bank: `opening + sum(transactions) == closing`. Card: `previous - sum(transactions) == new` (charges are money out and raise what is owed).
+- A mismatch marks the statement `unreconciled` with the difference. Never silently accept or "fix" a mismatch.
+- No balances (or balances not found in the text): `unverifiable`.
 
 ## Duplicates
 
-- **File level:** SHA-256 of the uploaded bytes. A known hash is reported as already imported and not reprocessed.
-- **Transaction level:** fingerprint of (account, date, amount, normalized description). Overlapping statements (monthly + quarterly) do not double count. Genuine same-day identical transactions are kept when they come from the **same** statement (use the row index within the statement as a tiebreaker).
+- **File level:** SHA-256 of the uploaded bytes; a known file returns 409 with its import id. A failed import can be uploaded again.
+- **Transaction level:** fingerprint of (account, date, amount, normalized description, occurrence within the statement), so overlapping statements do not double count and genuine identical rows in one statement are kept.
+- One PDF can hold several accounts: one statement per account, `UNIQUE (file_id, account_id)`.
 
 ## Tests
 
-Every bank profile has a synthetic fixture statement and a test that parses it and reconciles. See `testing.md` for the mutation-check rule.
+Synthetic statements only (`tests/fixtures/`, `conftest.py`). Integration tests script the mock LLM's answers (`upload` fixture) and assert what the checks do with them: made-up amounts, dates, banks and balances must be flagged or dropped. Real-model checks run outside the suite (tests never call Ollama).

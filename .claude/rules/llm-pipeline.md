@@ -7,18 +7,18 @@ Applies when touching `backend/app/llm/`, `backend/app/categorize/` and `backend
 - Providers live behind one interface in `backend/app/llm/base.py`, selected by `get_llm_provider()` in `backend/app/llm/__init__.py` from `LLM_PROVIDER` (`ollama` | `mock`). Business logic never branches on the active provider.
 - **There is no cloud provider and none may be added**: see `security.md`.
 - The `mock` provider is deterministic and is the default in tests. Tests never call Ollama.
-- Model name comes from `LLM_MODEL` (default `qwen2.5:7b`, fallback `llama3.1:8b`); never hardcoded at a call site. Must fit an 18 GB M3 Pro - stay at 7-8B.
+- Model name comes from `LLM_MODEL` (default `qwen3:8b` with `think: false`, chosen by a measured comparison on 2026-11-08: see PROJECT_STATE; `qwen2.5:7b` works too); never hardcoded at a call site. Must fit an 18 GB M3 Pro - stay at 7-8B.
 - Use Ollama's structured output (`format` = JSON schema) for every call whose result the code consumes. Prompts live next to their caller as plain strings or files, not in a prompt framework.
 
 ## Where the LLM is used, and where it is not
 
 | Task | LLM role | Code role |
 |---|---|---|
-| Statement layout (first upload per account) | Name the header line, columns, amount mode and balance labels (`statements/layout.py`) | Settle header line, date format, card sign and labels against the file; apply to every row; fall back to header heuristics; preview with reconciliation; save only after the user confirms |
+| Reading a statement | Extract accounts, period, balances and every transaction (`statements/extract.py`) | Verify each value against the statement text; flag what fails; reconcile per account |
 | Categorization | Pick one category from the allowed list (enum in the schema) | Rules first, stored results second, LLM last; store the result |
 | Chat | Choose a query tool and its arguments; phrase the answer | Run the query, compute every number |
 
-The LLM **never** produces an amount, a date, a balance or a total that the user sees as fact.
+The LLM reads amounts, dates and balances off the statement, and code checks each against the statement text before it is trusted; anything unchecked is shown flagged. The LLM **never** produces a total or aggregate: those are computed in code.
 
 ## Categorization
 

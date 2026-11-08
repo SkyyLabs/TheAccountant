@@ -53,45 +53,20 @@ export type Statement = {
   uploaded_at: string;
 };
 
-export type AmountMode = "signed" | "inverted" | "debit_credit";
-
-export type CsvMapping = {
-  header_row: number;
-  date_column: string;
-  description_column: string;
-  amount_mode: AmountMode;
-  amount_column: string | null;
-  debit_column: string | null;
-  credit_column: string | null;
-  date_format: string;
-  opening_balance_label: string | null;
-  closing_balance_label: string | null;
-};
-
-/** Sent with a 422 csv_mapping_required: what the user needs to map the columns. */
-export type MappingRequiredDetails = {
-  rows: string[][];
-  suggested_mapping: { [K in keyof CsvMapping]: CsvMapping[K] | null };
-  /** "llm": proposed by the local model and checked against the file; "heuristic": from header names. */
-  suggestion_source: "llm" | "heuristic";
-  date_formats: string[];
-};
-
-export type PreviewTransaction = {
-  date: string;
-  amount_minor: number;
-  currency: Currency;
-  description: string;
-};
-
-export type StatementPreview = {
-  row_count: number;
-  skipped_row_count: number;
-  opening_balance_minor: number | null;
-  closing_balance_minor: number | null;
-  reconciliation_status: ReconciliationStatus;
-  reconciliation_difference_minor: number | null;
-  transactions: PreviewTransaction[];
+export type Import = {
+  id: number;
+  filename: string;
+  status: "processing" | "done" | "failed";
+  /** Parts of the statement the local model has read so far. */
+  progress_done: number;
+  progress_total: number;
+  /** Plain-language reason when the import failed. */
+  error: string | null;
+  /** Transactions the model returned without a usable date or amount. */
+  rejected_count: number;
+  uploaded_at: string;
+  /** One per account found in the file. */
+  statements: Statement[];
 };
 
 export type Transaction = {

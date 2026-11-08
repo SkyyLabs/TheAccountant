@@ -1,6 +1,6 @@
 # TheAccountant
 
-A private, offline personal-finance app that runs only on the owner's Mac. The user uploads bank and credit-card account statements (CSV or PDF, from any US or Indian bank); the app extracts transactions, categorizes them with a **local** LLM (Ollama), and shows them in a tabbed browser UI with date, category, amount and account filters, charts, and a chat for questions like "how much did I spend on food in March?". Statements and all results are stored in a local SQLite database so re-uploads are detected and skipped. **Nothing leaves the machine** - no cloud, no login, no telemetry, no network calls except to the local Ollama server.
+A private, offline personal-finance app that runs only on the owner's Mac. The user uploads statements from any bank or card (PDF, scan or CSV, US or India; several at once) and nothing else: a **local** LLM (Ollama) reads them, code verifies what it read against the statement text, the LLM sorts transactions into categories, and a dashboard shows charts, filters and the categorized transactions (a chat for questions like "how much did I spend on food in March?" comes later). Statements and all results are stored in a local SQLite database so re-uploads are detected and skipped. **Nothing leaves the machine** - no cloud, no login, no telemetry, no network calls except to the local Ollama server.
 
 Out of scope for now: taxes, bank-sync APIs, email parsing, budgets, multi-user, cloud anything. Future work is listed in `PROJECT_STATE.md`.
 
@@ -45,26 +45,28 @@ backend/                 FastAPI app, Python 3.12, bound to 127.0.0.1 only
   app/config.py          env-driven settings (.env), fails fast on bad config
   app/db.py              the single SQLite repository layer
   app/migrations/        numbered .sql files, applied at startup via PRAGMA user_version
-  app/statements/        upload, fingerprinting, PDF unlock, parsing, reconciliation
-  app/statements/banks/  per-bank profiles (chase, discover, capital_one, sofi, icici, hdfc, sbi, axis)
+  app/statements/        importer (upload flow), pdf (text and OCR), extract (LLM reading + checks),
+                         fingerprints (dedupe), reconciliation, money, passwords (Keychain)
   app/categorize/        rules → cached result → LLM
   app/llm/               provider interface, Ollama provider, deterministic mock
   app/chat/              question → fixed query tools → answer
   tests/
-frontend/                Vite + React + TypeScript 5.9 + Tailwind; shadcn/ui and Recharts added with the first screen that needs them
+frontend/                Vite + React + TypeScript 5.9 + Tailwind 4 + Recharts + lucide-react; Geist font bundled
 data/                    gitignored: accountant.db (the only datastore)
 ```
 
 ### Upload flow (load-bearing path)
 
-1. UI uploads a file. Backend computes a SHA-256 of the bytes; an already-imported file is reported as a duplicate and not reprocessed.
-2. First upload for a bank: the UI asks which bank (default list or "Other") and, if the PDF is encrypted, its password. The password goes to the macOS Keychain, keyed by bank.
-3. The parser for that bank extracts transactions deterministically (CSV columns, PDF text/tables). Unknown layouts: the LLM proposes a column/field mapping, the user confirms a preview, and the mapping is saved as that bank's profile.
-4. Reconciliation: opening balance + transactions must equal closing balance (cards: previous balance + charges − payments/credits = new balance). Mismatch → statement flagged, nothing silently accepted.
-5. Transactions are de-duplicated by fingerprint (account, date, amount, normalized description) so overlapping statements do not double count.
-6. Categorization: user rules first, then stored results, then the LLM constrained to the category list. Corrections are saved and offered as new rules.
+The LLM is a helping hand in the core of the app, not a last resort (user decision, 2026-11-08): there is no per-bank or per-layout code. `POST /api/imports` -> `statements/importer.py`.
 
-UI tabs: **Overview** (charts), **Transactions** (filterable, editable table), **Statements** (uploads, status, reprocess), **Categories & Rules**, **Chat**.
+1. In the request: SHA-256 duplicate check (409), and for an encrypted PDF its password (tried with every saved Keychain password first). The file is stored as an import in progress.
+2. In the background: the file becomes text (`statements/pdf.py`: text layer with column gaps kept, Docling + macOS Vision OCR for scans; CSV as is).
+3. The local LLM extracts the accounts (bank, last 4, bank or card, currency, balances, period) and every transaction (date, description, amount, in or out), chunk by chunk (`statements/extract.py`).
+4. Code verifies every answer against the text: amounts must appear in it, dates must fall in the statement period, bank names, account numbers and balances must appear in it, and opening + transactions must equal closing. What fails is kept but flagged (`needs_review`, `unreconciled`), never silently trusted or "fixed".
+5. One statement per account found; banks and accounts are created or reused; overlapping statements are de-duplicated by fingerprint.
+6. Categorization: rules, stored results, then the LLM constrained to the category list. The import is done once categorized.
+
+UI: welcome screen, then upload (one or more files, live progress), then the dashboard (metrics per currency, spending donut, monthly bars, filters, editable transactions table, "upload more"). Categories & rules is the secondary screen.
 
 ## Specialist rules (`.claude/rules/`)
 
@@ -75,7 +77,7 @@ Domain detail lives in focused files. **Read the relevant one before editing tha
 | [.claude/rules/coding-practices.md](.claude/rules/coding-practices.md) | any code change |
 | [.claude/rules/testing.md](.claude/rules/testing.md) | writing or changing tests, fixing bugs |
 | [.claude/rules/security.md](.claude/rules/security.md) | privacy, passwords, logging, anything that could touch the network |
-| [.claude/rules/statements.md](.claude/rules/statements.md) | `backend/app/statements/` - parsing, money, dates, reconciliation, dedupe |
+| [.claude/rules/statements.md](.claude/rules/statements.md) | `backend/app/statements/` - text extraction, LLM reading and its checks, money, reconciliation, dedupe |
 | [.claude/rules/llm-pipeline.md](.claude/rules/llm-pipeline.md) | `backend/app/llm/`, `categorize/`, `chat/` |
 | [.claude/rules/database.md](.claude/rules/database.md) | `backend/app/db.py`, `migrations/`, any SQL |
 | [.claude/rules/api.md](.claude/rules/api.md) | `backend/app/main.py` and routes |
@@ -84,9 +86,9 @@ Domain detail lives in focused files. **Read the relevant one before editing tha
 ## Critical invariants (never break)
 
 - **Nothing leaves the machine.** No outbound network calls except `localhost:11434` (Ollama). The one exception is `make models`, run once by the user to download the Docling models; at runtime Docling runs with `HF_HUB_OFFLINE=1` and a local models path. No cloud LLMs, analytics, CDNs at runtime, or update checks. Server binds `127.0.0.1` only. See `security.md`.
-- **The LLM is never the source of an amount or date when a parser can read it.** LLM-extracted values are marked `needs_review`. The chat computes numbers in code; the LLM only phrases the answer. See `statements.md` / `llm-pipeline.md`.
+- **The LLM extracts, code verifies against the source text** (changed by user decision on 2026-11-08; before, parsers were the only source of amounts and dates). Every amount the LLM returns must appear in the statement text, every date must fall in the statement period, and balances must reconcile; anything that fails is flagged `needs_review` / `unreconciled`, never silently trusted. Totals and aggregates are always computed in code: the chat's LLM only phrases answers. See `statements.md` / `llm-pipeline.md`.
 - **Money is integer minor units (cents/paise) plus a currency code - never floats.** Currencies are never summed together. See `statements.md`.
-- **Date format is per bank** (US `MM/DD`, India `DD/MM`), never guessed per row. See `statements.md`.
+- **Dates come out of the LLM as ISO `YYYY-MM-DD`** and are checked against the statement period; a yearless or ambiguous date is resolved by the model reading the whole statement, and a date outside the period is flagged. See `statements.md`.
 - **Statement passwords live in the macOS Keychain only**: never in SQLite, logs, `.env`, or git. See `security.md`.
 - **No real financial data in git**: the repo is public. Test fixtures are synthetic. See `security.md`.
 

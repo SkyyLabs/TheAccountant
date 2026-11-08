@@ -1,7 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 
 import { App } from "./App";
+import { WELCOME_MS } from "./components/Welcome";
+import { fakeApi } from "./test/fakeApi";
 
 function renderAt(path: string) {
   return render(
@@ -11,61 +13,67 @@ function renderAt(path: string) {
   );
 }
 
-function stubHealth(response: Promise<Response>) {
-  vi.stubGlobal("fetch", vi.fn(() => response));
-}
+const EMPTY = {
+  "GET /api/health": { body: { status: "ok", version: "0.1.0", schema_version: 7 } },
+  "GET /api/summary": { body: { totals: [], by_month: [], by_category: [] } },
+  "GET /api/transactions": { body: [] },
+  "GET /api/statements": { body: [] },
+  "GET /api/categories": { body: [] },
+  "GET /api/accounts": { body: [] },
+};
+
+beforeEach(() => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+});
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
-test("root redirects to the Overview tab", async () => {
-  stubHealth(new Promise(() => {}));
+test("the app opens on a welcome screen, then the upload page on a first visit", async () => {
+  fakeApi({ ...EMPTY, "GET /api/imports": { body: [] } });
+  renderAt("/");
+  expect(screen.getByRole("heading", { name: "TheAccountant" })).toBeInTheDocument();
+
+  await act(async () => {
+    vi.advanceTimersByTime(WELCOME_MS);
+  });
+
+  expect(await screen.findByRole("heading", { name: "Upload your statements" })).toBeInTheDocument();
+});
+
+test("with statements already read, the welcome screen leads to the dashboard", async () => {
+  fakeApi({
+    ...EMPTY,
+    "GET /api/imports": {
+      body: [{ id: 1, filename: "a.pdf", status: "done", progress_done: 1, progress_total: 1, error: null, rejected_count: 0, uploaded_at: "", statements: [] }],
+    },
+  });
   renderAt("/");
 
-  expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+  await act(async () => {
+    vi.advanceTimersByTime(WELCOME_MS);
+  });
+
+  expect(await screen.findByText("Nothing here yet")).toBeInTheDocument();
 });
 
-test("all five tabs are in the main navigation", () => {
-  stubHealth(new Promise(() => {}));
-  renderAt("/overview");
+test("the header links to the dashboard, categories and upload", () => {
+  fakeApi({ ...EMPTY, "GET /api/imports": { body: [] } });
+  renderAt("/dashboard");
 
   const nav = screen.getByRole("navigation", { name: "Main" });
-  const labels = Array.from(nav.querySelectorAll("a")).map((link) => link.textContent);
-  expect(labels).toEqual(["Overview", "Transactions", "Statements", "Categories & Rules", "Chat"]);
+  expect(Array.from(nav.querySelectorAll("a")).map((a) => a.textContent)).toEqual([
+    "Dashboard",
+    "Categories",
+  ]);
+  expect(screen.getByRole("link", { name: "Upload" })).toHaveAttribute("href", "/upload");
 });
 
-test("clicking a tab shows its page and marks it current", async () => {
-  stubHealth(new Promise(() => {}));
-  renderAt("/overview");
+test("the status shows the app is private and offline when the server answers", async () => {
+  fakeApi({ ...EMPTY, "GET /api/imports": { body: [] } });
+  renderAt("/dashboard");
 
-  fireEvent.click(screen.getByRole("link", { name: "Statements" }));
-
-  expect(await screen.findByRole("heading", { name: "Statements" })).toBeInTheDocument();
-  expect(screen.getByRole("link", { name: "Statements" })).toHaveAttribute("aria-current", "page");
-});
-
-test("unknown paths fall back to Overview", async () => {
-  stubHealth(new Promise(() => {}));
-  renderAt("/nope");
-
-  expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
-});
-
-test("backend status shows online when health succeeds", async () => {
-  stubHealth(
-    Promise.resolve(
-      new Response(JSON.stringify({ status: "ok", version: "0.1.0", schema_version: 1 })),
-    ),
-  );
-  renderAt("/overview");
-
-  expect(await screen.findByText("Backend online")).toBeInTheDocument();
-});
-
-test("backend status shows offline with a hint when health fails", async () => {
-  stubHealth(Promise.reject(new TypeError("Failed to fetch")));
-  renderAt("/overview");
-
-  expect(await screen.findByText("Backend offline: run make run")).toBeInTheDocument();
+  expect(await screen.findByText("Private · offline")).toBeInTheDocument();
 });
