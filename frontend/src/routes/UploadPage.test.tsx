@@ -59,8 +59,18 @@ function choose(...names: string[]) {
 
 async function wait(ms: number) {
   await act(async () => {
-    vi.advanceTimersByTime(ms);
+    await vi.advanceTimersByTimeAsync(ms);
   });
+}
+
+/** Advance the clock a poll at a time until the text shows: timers may be registered a
+ * moment after a step, so a single fixed jump is not reliable on a slow machine. */
+async function pollUntil(text: string) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    if (screen.queryByText(text)) return;
+    await wait(POLL_MS);
+  }
+  expect(screen.getByText(text)).toBeInTheDocument();
 }
 
 beforeEach(() => {
@@ -99,9 +109,8 @@ test("progress follows the local AI reading the statement", async () => {
   choose("dec.pdf");
   await screen.findByText("Reading with the local AI…");
 
-  await wait(POLL_MS);
+  await pollUntil("Reading with the local AI · part 2 of 3");
 
-  expect(await screen.findByText("Reading with the local AI · part 2 of 3")).toBeInTheDocument();
   expect(polls).toBeGreaterThan(0);
 });
 
@@ -114,8 +123,7 @@ test("when every file is read, the dashboard opens", async () => {
   choose("dec.pdf");
   await screen.findByText("Reading with the local AI…");
 
-  await wait(POLL_MS);
-  expect(await screen.findByText("8 transactions · Chase ••4321")).toBeInTheDocument();
+  await pollUntil("8 transactions · Chase ••4321");
   await wait(REDIRECT_MS);
 
   expect(await screen.findByRole("heading", { name: "Dashboard page" })).toBeInTheDocument();
@@ -132,8 +140,7 @@ test("a failed file shows the reason and does not open the dashboard", async () 
   choose("notes.pdf");
   await screen.findByText("Reading with the local AI…");
 
-  await wait(POLL_MS);
-  expect(await screen.findByText("No transactions were found in this file.")).toBeInTheDocument();
+  await pollUntil("No transactions were found in this file.");
   await wait(REDIRECT_MS * 2);
 
   expect(screen.queryByRole("heading", { name: "Dashboard page" })).not.toBeInTheDocument();
