@@ -5,8 +5,8 @@
 > The code is authoritative. If this file and the code disagree, fix this file.
 
 **Last updated:** 2026-11-07
-**Current milestone:** M4 - Categorization
-**Next milestone:** M5 - Transactions and Overview
+**Current milestone:** M5 - Transactions and Overview (after the accuracy review)
+**Next milestone:** M6 - Chat
 **Default branch:** `dev`
 **Agent instructions:** synced from LLMTemplates (sky1502/LLMTemplates) `c1ace50` on 2026-11-07
 
@@ -102,6 +102,12 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - Verified: `make verify` (default suite). Mutation checks (rules skipped, stored results skipped, confidence ignored, category list not enforced, region ignored, unavailable reported as done, amount minimum ignored, rules override user, earliest assignment wins, correction not marked user) each fail a test; "stored results skipped" survived at first and the test was rewritten. Real `qwen2.5:7b` on 14 synthetic US and Indian transactions: 12 sensible, 2 flagged for review (gibberish merchant, card payment), 16 s.
 - Not done: no read of the assignment history (audit rows are stored but not exposed yet).
 
+### M4b - Categories UI
+- Transactions tab: category column (labelled select per row), "Check category" badge for low-confidence results, "Always categorize X as Y?" offer after a correction (creates the rule only on accept, reports how many other transactions moved), "Categorize now" retry when some are pending, light refresh every 3 s (up to 20 times) while categorization runs.
+- Categories & Rules tab: rules (match, merchant text, category, priority; delete), categories (add with region, rename, delete with the server's reason shown; `Uncategorized` has no actions). Rule amount ranges are supported by the API but not exposed in the UI yet (it would need parsing typed money in the frontend).
+- Verified: `make verify` (196 backend, 33 frontend tests, build). UI mutation checks (no rule offer, no check badge, Uncategorized editable) each fail a test. Live smoke on uvicorn with real Ollama and a throwaway database: upload returned `pending`, background categorization finished in about 6 s, `/categories` served.
+- Not verified: visual check in a browser.
+
 ---
 
 ## Architecture decisions
@@ -138,10 +144,9 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - **Accuracy review of financial readings (user request, 2026-11-08, after M4):** measure how accurate extraction, layout proposals and reconciliation are, and decide how to handle the gaps listed under M3b and M3c (wrapped descriptions, card sign ties, `Cr` card balances, layout proposal latency). Synthetic test layouts only so far; real-statement checks need the user.
 - **When development is done (user request, 2026-11-08):** add a Read deny rule for real statements back to `.claude/settings.json`. It was removed because `Read(./statements/**)` also matched `backend/app/statements/` and blocked the parser code. Re-add it in a form that only covers a root-level folder and confirm `backend/app/statements/` stays readable.
 
-1. **M4 - Categorization:** default US and India category sets, rules -> stored result -> LLM, corrections offered as rules.
-2. **M5 - Transactions and Overview:** filters (date range, category, amount range, account, currency), editable categories, charts by month and category.
-3. **M6 - Chat:** fixed query tools over transactions; answers cite the filters used.
-4. **M7 - Receipt photos:** `llama3.2-vision` (scanned statements are already handled by Docling + Vision OCR in M3b).
+1. **M5 - Transactions and Overview:** filters (date range, category, amount range, account, currency), editable categories, charts by month and category.
+2. **M6 - Chat:** fixed query tools over transactions; answers cite the filters used.
+3. **M7 - Receipt photos:** `llama3.2-vision` (scanned statements are already handled by Docling + Vision OCR in M3b).
 
 ## Future work
 

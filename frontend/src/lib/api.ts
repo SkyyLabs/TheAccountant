@@ -4,12 +4,18 @@ import type {
   AccountType,
   ApiErrorBody,
   Bank,
+  Category,
   Country,
   CsvMapping,
   Health,
+  Region,
+  RuleCreated,
+  RuleInput,
+  Rule,
   Statement,
   StatementPreview,
   Transaction,
+  TransactionCorrected,
 } from "../types/api";
 
 export class ApiError extends Error {
@@ -23,6 +29,14 @@ export class ApiError extends Error {
   }
 }
 
+function sendJson<T>(method: string, path: string, body: unknown): Promise<T> {
+  return request<T>(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, init);
   if (!response.ok) {
@@ -34,15 +48,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       body?.error.details,
     );
   }
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 
 function postJson<T>(path: string, body: unknown): Promise<T> {
-  return request<T>(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  return sendJson<T>("POST", path, body);
 }
 
 export type StatementUnlock = { password: string; remember: boolean };
@@ -95,4 +106,19 @@ export const api = {
       body: statementForm(file, accountId, mapping, unlock && { ...unlock, remember: false }),
     }),
   listTransactions: () => request<Transaction[]>("/transactions"),
+  setTransactionCategory: (transactionId: number, categoryId: number) =>
+    sendJson<TransactionCorrected>("PATCH", `/transactions/${transactionId}`, {
+      category_id: categoryId,
+    }),
+  categorizePending: () => request<{ status: string }>("/transactions/categorize", { method: "POST" }),
+  listCategories: () => request<Category[]>("/categories"),
+  createCategory: (name: string, region: Region) =>
+    postJson<Category>("/categories", { name, region }),
+  renameCategory: (categoryId: number, name: string) =>
+    sendJson<Category>("PATCH", `/categories/${categoryId}`, { name }),
+  deleteCategory: (categoryId: number) =>
+    request<void>(`/categories/${categoryId}`, { method: "DELETE" }),
+  listRules: () => request<Rule[]>("/rules"),
+  createRule: (rule: RuleInput) => postJson<RuleCreated>("/rules", rule),
+  deleteRule: (ruleId: number) => request<void>(`/rules/${ruleId}`, { method: "DELETE" }),
 };

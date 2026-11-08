@@ -48,6 +48,7 @@ export type Statement = {
   row_count: number;
   imported_count: number;
   duplicate_count: number;
+  categorization_status: "pending" | "done" | "llm_unavailable";
   uploaded_at: string;
 };
 
@@ -104,4 +105,42 @@ export type Transaction = {
   currency: Currency;
   description: string;
   needs_review: boolean;
+  category_id: number | null;
+  category_name: string | null;
+  category_source: CategorySource | null;
+  category_needs_review: boolean;
 };
+
+export type CategorySource = "rule" | "cache" | "llm" | "user";
+export type Region = "US" | "IN" | "both";
+
+export type Category = {
+  id: number;
+  name: string;
+  region: Region;
+  is_default: boolean;
+};
+
+export type MatchType = "exact" | "contains";
+
+export type Rule = {
+  id: number;
+  match_type: MatchType;
+  pattern: string;
+  amount_min_minor: number | null;
+  amount_max_minor: number | null;
+  category_id: number;
+  category_name: string;
+  priority: number;
+};
+
+export type RuleSuggestion = { match_type: MatchType; pattern: string; category_id: number };
+
+export type RuleInput = RuleSuggestion & { priority?: number };
+
+export type TransactionCorrected = {
+  transaction: Transaction;
+  suggested_rule: RuleSuggestion | null;
+};
+
+export type RuleCreated = { rule: Rule; applied_count: number };
