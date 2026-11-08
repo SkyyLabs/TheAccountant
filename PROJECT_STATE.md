@@ -25,6 +25,7 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 ### M0 — Repository and workflow
 - `dev`, `stage`, `prod` created from `main` and pushed; default branch set to `dev` (verified with `gh repo view`).
 - `stage` and `prod` protected: PR required (0 approvals, solo developer), force pushes and deletions blocked. Admins not enforced, so the owner can still bypass in an emergency.
+- `.claude/settings.json` wires the guard hook (placed by the user; agents cannot write their own permissions file).
 - Agent instructions added from LLMTemplates: `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `.claude/` (rules, settings, destructive-command hook, `/verify`), PR template, `.gitignore`.
 - Domain rules written for statements/money, LLM pipeline, SQLite, API and frontend.
 
@@ -59,7 +60,7 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 
 ## Next tasks
 
-1. **M0 finish:** add `.claude/settings.json` (wires the guard hook; must be placed by the user — agents are blocked from writing their own permissions file). Decide whether to delete the now-unused `main` branch.
+1. **M0 finish:** merge PR #1 into `dev`. Decide whether to delete the now-unused `main` branch.
 2. **M1 — App skeleton:** `Makefile` (`setup`, `run`, `dev`, `test`, `verify`), FastAPI app + config + SQLite migrations, Vite app with the five tabs (Overview, Transactions, Statements, Categories & Rules, Chat), `.env.example`, CI workflow running `make verify` on `dev`/`stage`/`prod`.
 3. **M2 — Upload and CSV import:** file fingerprint dedupe; bank picker on first upload (defaults: Chase, Discover, Capital One, SoFi, ICICI, HDFC, SBI, Axis, plus "Other"); per-bank currency/date format/account type; CSV import with column mapping saved per bank.
 4. **M3 — PDF statements:** Keychain-backed password per bank, PDF text/table extraction, per-bank profiles for the defaults, LLM-proposed mapping for unknown layouts with user-confirmed preview, reconciliation, transaction-level dedupe.
