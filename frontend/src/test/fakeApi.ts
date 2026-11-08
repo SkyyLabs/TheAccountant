@@ -3,7 +3,12 @@
 type Reply = { status?: number; body: unknown };
 type Handler = Reply | (() => Reply);
 
-export type RecordedRequest = { method: string; path: string; body: BodyInit | null | undefined };
+export type RecordedRequest = {
+  method: string;
+  path: string;
+  query: URLSearchParams;
+  body: BodyInit | null | undefined;
+};
 
 export function fakeApi(handlers: Record<string, Handler>) {
   const requests: RecordedRequest[] = [];
@@ -11,8 +16,9 @@ export function fakeApi(handlers: Record<string, Handler>) {
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const method = init?.method ?? "GET";
-      const path = new URL(String(input), "http://localhost").pathname;
-      requests.push({ method, path, body: init?.body });
+      const url = new URL(String(input), "http://localhost");
+      const path = url.pathname;
+      requests.push({ method, path, query: url.searchParams, body: init?.body });
       const handler = handlers[`${method} ${path}`];
       if (!handler) {
         return new Response(

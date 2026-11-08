@@ -1,6 +1,7 @@
 """The single SQLite repository layer. All SQL in the app lives in this module."""
 
 import sqlite3
+from dataclasses import dataclass, field
 from pathlib import Path
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
@@ -90,13 +91,19 @@ def save_account_csv_mapping(
         )
 
 
+_ACCOUNT_COLUMNS = (
+    "SELECT accounts.id, accounts.bank_id, banks.name AS bank_name, accounts.type, accounts.name"
+    " FROM accounts JOIN banks ON banks.id = accounts.bank_id"
+)
+
+
 def list_accounts(connection: sqlite3.Connection, bank_id: str | None = None) -> list[sqlite3.Row]:
-    query = "SELECT id, bank_id, type, name FROM accounts"
+    query = _ACCOUNT_COLUMNS
     params: tuple = ()
     if bank_id is not None:
-        query += " WHERE bank_id = ?"
+        query += " WHERE accounts.bank_id = ?"
         params = (bank_id,)
-    return connection.execute(query + " ORDER BY bank_id, name", params).fetchall()
+    return connection.execute(query + " ORDER BY banks.name, accounts.name", params).fetchall()
 
 
 def create_account(
@@ -109,7 +116,7 @@ def create_account(
             (bank_id, account_type, name),
         )
     return connection.execute(
-        "SELECT id, bank_id, type, name FROM accounts WHERE id = ?", (cursor.lastrowid,)
+        _ACCOUNT_COLUMNS + " WHERE accounts.id = ?", (cursor.lastrowid,)
     ).fetchone()
 
 
@@ -224,14 +231,7 @@ def create_statement(
     return statement_id
 
 
-_TRANSACTION_COLUMNS = (
-    "SELECT transactions.id, transactions.statement_id, transactions.account_id,"
-    " accounts.name AS account_name, accounts.bank_id, banks.name AS bank_name,"
-    " transactions.date, transactions.amount_minor, transactions.currency,"
-    " transactions.description, transactions.merchant_key, transactions.needs_review,"
-    " categories.id AS category_id, categories.name AS category_name,"
-    " category_assignments.source AS category_source,"
-    " coalesce(category_assignments.needs_review, 0) AS category_needs_review"
+_TRANSACTION_FROM = (
     " FROM transactions JOIN accounts ON accounts.id = transactions.account_id"
     " JOIN banks ON banks.id = accounts.bank_id"
     # The latest assignment wins; earlier ones stay for audit.
@@ -240,12 +240,115 @@ _TRANSACTION_COLUMNS = (
     "   WHERE category_assignments.transaction_id = transactions.id)"
     " LEFT JOIN categories ON categories.id = category_assignments.category_id"
 )
+_TRANSACTION_COLUMNS = (
+    "SELECT transactions.id, transactions.statement_id, transactions.account_id,"
+    " accounts.name AS account_name, accounts.bank_id, banks.name AS bank_name,"
+    " transactions.date, transactions.amount_minor, transactions.currency,"
+    " transactions.description, transactions.merchant_key, transactions.needs_review,"
+    " categories.id AS category_id, categories.name AS category_name,"
+    " category_assignments.source AS category_source,"
+    " coalesce(category_assignments.needs_review, 0) AS category_needs_review" + _TRANSACTION_FROM
+)
 
 
-def list_transactions(connection: sqlite3.Connection) -> list[sqlite3.Row]:
+@dataclass(frozen=True)
+class TransactionFilters:
+    """Every filter is optional; lists match any of their values. Amounts filter on the
+    size of the amount (money in or out alike), in minor units."""
+
+    date_from: str | None = None
+    date_to: str | None = None
+    category_ids: list[int] = field(default_factory=list)
+    account_ids: list[int] = field(default_factory=list)
+    currency: str | None = None
+    amount_min_minor: int | None = None
+    amount_max_minor: int | None = None
+    text: str | None = None
+
+
+def _where(filters: TransactionFilters) -> tuple[str, list]:
+    conditions: list[str] = []
+    params: list = []
+    if filters.date_from:
+        conditions.append("transactions.date >= ?")
+        params.append(filters.date_from)
+    if filters.date_to:
+        conditions.append("transactions.date <= ?")
+        params.append(filters.date_to)
+    if filters.category_ids:
+        conditions.append(f"categories.id IN ({', '.join('?' * len(filters.category_ids))})")
+        params.extend(filters.category_ids)
+    if filters.account_ids:
+        conditions.append(
+            f"transactions.account_id IN ({', '.join('?' * len(filters.account_ids))})"
+        )
+        params.extend(filters.account_ids)
+    if filters.currency:
+        conditions.append("transactions.currency = ?")
+        params.append(filters.currency)
+    if filters.amount_min_minor is not None:
+        conditions.append("abs(transactions.amount_minor) >= ?")
+        params.append(filters.amount_min_minor)
+    if filters.amount_max_minor is not None:
+        conditions.append("abs(transactions.amount_minor) <= ?")
+        params.append(filters.amount_max_minor)
+    if filters.text:
+        escaped = filters.text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        conditions.append("transactions.description LIKE ? ESCAPE '\\'")
+        params.append(f"%{escaped}%")
+    return (" WHERE " + " AND ".join(conditions) if conditions else ""), params
+
+
+def list_transactions(
+    connection: sqlite3.Connection, filters: TransactionFilters | None = None
+) -> list[sqlite3.Row]:
+    where, params = _where(filters or TransactionFilters())
     return connection.execute(
-        _TRANSACTION_COLUMNS + " ORDER BY transactions.date DESC, transactions.id DESC"
+        _TRANSACTION_COLUMNS + where + " ORDER BY transactions.date DESC, transactions.id DESC",
+        params,
     ).fetchall()
+
+
+# Money in and money out are both reported as positive totals, per currency: never summed
+# across currencies.
+_TOTALS = (
+    " sum(CASE WHEN transactions.amount_minor > 0 THEN transactions.amount_minor ELSE 0 END)"
+    " AS money_in_minor,"
+    " sum(CASE WHEN transactions.amount_minor < 0 THEN -transactions.amount_minor ELSE 0 END)"
+    " AS money_out_minor,"
+    " count(*) AS transaction_count"
+)
+
+
+def summarize_transactions(connection: sqlite3.Connection, filters: TransactionFilters) -> dict:
+    where, params = _where(filters)
+    totals = connection.execute(
+        "SELECT transactions.currency,"
+        + _TOTALS
+        + _TRANSACTION_FROM
+        + where
+        + " GROUP BY transactions.currency ORDER BY transactions.currency",
+        params,
+    ).fetchall()
+    by_month = connection.execute(
+        "SELECT substr(transactions.date, 1, 7) AS month, transactions.currency,"
+        + _TOTALS
+        + _TRANSACTION_FROM
+        + where
+        + " GROUP BY month, transactions.currency ORDER BY month, transactions.currency",
+        params,
+    ).fetchall()
+    by_category = connection.execute(
+        "SELECT categories.id AS category_id, categories.name AS category_name,"
+        " transactions.currency,"
+        + _TOTALS
+        + _TRANSACTION_FROM
+        + where
+        + " GROUP BY categories.id, transactions.currency"
+        " ORDER BY transactions.currency, money_out_minor DESC, category_name",
+        params,
+    ).fetchall()
+    return {"totals": totals, "by_month": by_month, "by_category": by_category}
 
 
 def get_transaction(connection: sqlite3.Connection, transaction_id: int) -> sqlite3.Row | None:

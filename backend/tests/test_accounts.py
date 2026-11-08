@@ -7,6 +7,7 @@ def test_account_is_created_under_a_bank(client):
     assert response.json() == {
         "id": 1,
         "bank_id": "chase",
+        "bank_name": "Chase",
         "type": "credit_card",
         "name": "Freedom 1234",
     }

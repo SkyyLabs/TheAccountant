@@ -14,6 +14,7 @@ import type {
   Rule,
   Statement,
   StatementPreview,
+  Summary,
   Transaction,
   TransactionCorrected,
 } from "../types/api";
@@ -58,6 +59,10 @@ function postJson<T>(path: string, body: unknown): Promise<T> {
 
 export type StatementUnlock = { password: string; remember: boolean };
 
+function query(filters: string): string {
+  return filters ? `?${filters}` : "";
+}
+
 function statementForm(
   file: File,
   accountId: number,
@@ -79,8 +84,8 @@ export const api = {
   health: () => request<Health>("/health"),
   listBanks: () => request<Bank[]>("/banks"),
   createBank: (name: string, country: Country) => postJson<Bank>("/banks", { name, country }),
-  listAccounts: (bankId: string) =>
-    request<Account[]>(`/accounts?bank_id=${encodeURIComponent(bankId)}`),
+  listAccounts: (bankId?: string) =>
+    request<Account[]>(bankId ? `/accounts?bank_id=${encodeURIComponent(bankId)}` : "/accounts"),
   createAccount: (bankId: string, type: AccountType, name: string) =>
     postJson<Account>("/accounts", { bank_id: bankId, type, name }),
   listStatements: () => request<Statement[]>("/statements"),
@@ -105,7 +110,9 @@ export const api = {
       // Preview never saves the password; only a successful upload does.
       body: statementForm(file, accountId, mapping, unlock && { ...unlock, remember: false }),
     }),
-  listTransactions: () => request<Transaction[]>("/transactions"),
+  /** `filters` uses the same parameter names as the page URL (see FILTER_KEYS). */
+  listTransactions: (filters = "") => request<Transaction[]>(`/transactions${query(filters)}`),
+  summary: (filters = "") => request<Summary>(`/summary${query(filters)}`),
   setTransactionCategory: (transactionId: number, categoryId: number) =>
     sendJson<TransactionCorrected>("PATCH", `/transactions/${transactionId}`, {
       category_id: categoryId,

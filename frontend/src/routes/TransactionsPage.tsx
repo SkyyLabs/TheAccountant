@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 
+import { Filters, filterQuery } from "../components/transactions/Filters";
 import { ApiError, api } from "../lib/api";
 import { formatMoney } from "../lib/format";
-import type { Category, RuleSuggestion, Transaction } from "../types/api";
+import type { Account, Category, CurrencyTotals, RuleSuggestion, Transaction } from "../types/api";
 
 // Categorizing runs in the background after an upload; refresh while some are pending.
 const REFRESH_MS = 3000;
@@ -11,27 +13,36 @@ const MAX_REFRESHES = 20;
 type Offer = RuleSuggestion & { categoryName: string };
 
 export function TransactionsPage() {
+  const [params] = useSearchParams();
+  const filters = filterQuery(params);
   const [transactions, setTransactions] = useState<Transaction[] | null>(null);
+  const [totals, setTotals] = useState<CurrencyTotals[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [refreshes, setRefreshes] = useState(0);
   const [offer, setOffer] = useState<Offer | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    api
-      .listTransactions()
-      .then(setTransactions)
+    Promise.all([api.listTransactions(filters), api.summary(filters)])
+      .then(([loaded, summary]) => {
+        setTransactions(loaded);
+        setTotals(summary.totals);
+      })
       .catch(() => setLoadError(true));
-  }, []);
+  }, [filters]);
+
+  useEffect(load, [load]);
 
   useEffect(() => {
-    load();
-    api
-      .listCategories()
-      .then(setCategories)
+    Promise.all([api.listCategories(), api.listAccounts()])
+      .then(([loadedCategories, loadedAccounts]) => {
+        setCategories(loadedCategories);
+        setAccounts(loadedAccounts);
+      })
       .catch(() => setLoadError(true));
-  }, [load]);
+  }, []);
 
   const pendingCount = transactions?.filter((t) => t.category_id === null).length ?? 0;
   useEffect(() => {
@@ -96,9 +107,22 @@ export function TransactionsPage() {
     <section>
       <h1 className="text-2xl font-semibold">Transactions</h1>
       <p className="mt-2 max-w-prose text-slate-600 dark:text-slate-400">
-        Every imported transaction, newest first. Change a category to correct it; filters come
-        next.
+        Imported transactions, newest first. Change a category to correct it. Filters are kept in
+        the address, so a filtered view survives a reload and can be bookmarked.
       </p>
+      <Filters categories={categories} accounts={accounts} />
+      {totals.length > 0 && (
+        <ul aria-label="Totals" className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm">
+          {totals.map((total) => (
+            <li key={total.currency}>
+              <span className="font-medium">{total.currency}</span>: in{" "}
+              {formatMoney(total.money_in_minor, total.currency)} · out{" "}
+              {formatMoney(total.money_out_minor, total.currency)} · {total.transaction_count}{" "}
+              transaction{total.transaction_count === 1 ? "" : "s"}
+            </li>
+          ))}
+        </ul>
+      )}
       {loadError && (
         <p role="alert" className="mt-4 text-sm text-red-700 dark:text-red-400">
           Could not load transactions.
@@ -146,7 +170,9 @@ export function TransactionsPage() {
       {transactions === null && !loadError && <p className="mt-4 text-sm">Loading…</p>}
       {transactions?.length === 0 && (
         <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">
-          No transactions yet. Upload a statement in the Statements tab.
+          {filters
+            ? "No transactions match these filters."
+            : "No transactions yet. Upload a statement in the Statements tab."}
         </p>
       )}
       {transactions && transactions.length > 0 && (
