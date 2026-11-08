@@ -7,6 +7,7 @@ Applies to all code. The product promise is **your financial data never leaves t
 - The only allowed outbound connection is the local Ollama server (`OLLAMA_URL`, default `http://127.0.0.1:11434`). Config validation rejects any non-loopback `OLLAMA_URL`.
 - No cloud LLMs, analytics, error reporting, update checks, font or script CDNs, or remote images at runtime. Frontend assets are bundled at build time.
 - The server binds `127.0.0.1` only, never `0.0.0.0`.
+- Docling models are downloaded once by the user with `make models` (Hugging Face, telemetry off) into the gitignored `models/`. At runtime `statements/pdf.py` sets `HF_HUB_OFFLINE=1` and passes the local `artifacts_path`; OCR is macOS Vision (`ocrmac`), which needs no download. Never add a code path that downloads models on demand.
 - Adding any dependency that phones home (telemetry on by default) requires disabling it, or choosing another package.
 
 ## Statement passwords
