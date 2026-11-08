@@ -153,9 +153,10 @@ def apply_mapping(
     skipped = 0
     for offset, row in enumerate(rows[mapping.header_row + 1 :]):
         line_number = mapping.header_row + 2 + offset
-        if not any(row):
-            continue
         cells = row + [""] * (len(headers) - len(row))
+        # Blank rows, and the header repeated at the top of each PDF page.
+        if not any(row) or cells[: len(headers)] == headers:
+            continue
         if not cells[date_index] or not any(cells[i] for i in amount_indexes):
             skipped += 1
             continue

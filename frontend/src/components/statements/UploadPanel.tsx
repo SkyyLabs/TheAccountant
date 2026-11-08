@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { ApiError, api } from "../../lib/api";
+import { ApiError, api, type StatementUnlock } from "../../lib/api";
 import type {
   Account,
   AccountType,
@@ -38,6 +38,11 @@ export function UploadPanel({ onImported }: { onImported: () => void }) {
   const [newAccountName, setNewAccountName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [mappingDetails, setMappingDetails] = useState<MappingRequiredDetails | null>(null);
+  // Held in memory for this upload only; never written to browser storage.
+  const [passwordNeeded, setPasswordNeeded] = useState(false);
+  const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
+  const [unlock, setUnlock] = useState<StatementUnlock | undefined>(undefined);
   const [message, setMessage] = useState<Message | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -93,20 +98,40 @@ export function UploadPanel({ onImported }: { onImported: () => void }) {
       setNewAccountName("");
     });
 
-  function finishImport(statement: Statement) {
+  function resetFile() {
     setMappingDetails(null);
+    setPasswordNeeded(false);
+    setPassword("");
+    setUnlock(undefined);
+  }
+
+  function finishImport(statement: Statement) {
+    resetFile();
     setMessage({ kind: "success", text: importedText(statement) });
     onImported();
   }
 
-  const upload = () =>
+  const upload = (withUnlock?: StatementUnlock) =>
     run(async () => {
       if (!file) return;
       try {
-        finishImport(await api.uploadStatement(file, Number(accountId)));
+        finishImport(await api.uploadStatement(file, Number(accountId), undefined, withUnlock));
       } catch (caught) {
         if (caught instanceof ApiError && caught.code === "csv_mapping_required") {
+          setPasswordNeeded(false);
+          setUnlock(withUnlock);
           setMappingDetails(caught.details as MappingRequiredDetails);
+          return;
+        }
+        if (
+          caught instanceof ApiError &&
+          (caught.code === "pdf_password_required" || caught.code === "pdf_password_invalid")
+        ) {
+          setPasswordNeeded(true);
+          setPassword("");
+          if (caught.code === "pdf_password_invalid") {
+            setMessage({ kind: "error", text: "That password did not open the PDF. Try again." });
+          }
           return;
         }
         if (caught instanceof ApiError && caught.code === "duplicate_statement") {
@@ -140,7 +165,7 @@ export function UploadPanel({ onImported }: { onImported: () => void }) {
               setBankId(event.target.value);
               setAccounts([]);
               setAccountId("");
-              setMappingDetails(null);
+              resetFile();
             }}
             className={fieldClass}
           >
@@ -202,7 +227,7 @@ export function UploadPanel({ onImported }: { onImported: () => void }) {
               value={accountId}
               onChange={(event) => {
                 setAccountId(event.target.value);
-                setMappingDetails(null);
+                resetFile();
               }}
               className={fieldClass}
             >
@@ -263,15 +288,15 @@ export function UploadPanel({ onImported }: { onImported: () => void }) {
         {accountReady && (
           <div>
             <label htmlFor="upload-file" className="block text-sm font-medium">
-              Statement file (CSV)
+              Statement file (CSV or PDF)
             </label>
             <input
               id="upload-file"
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,text/csv,.pdf,application/pdf"
               onChange={(event) => {
                 setFile(event.target.files?.[0] ?? null);
-                setMappingDetails(null);
+                resetFile();
                 setMessage(null);
               }}
               className="mt-1 w-full text-sm"
@@ -280,10 +305,49 @@ export function UploadPanel({ onImported }: { onImported: () => void }) {
         )}
       </div>
 
-      {accountReady && (
+      {accountReady && passwordNeeded && (
+        <form
+          className="mt-4 grid gap-2 sm:grid-cols-3 sm:items-end"
+          onSubmit={(event) => {
+            event.preventDefault();
+            upload({ password, remember });
+          }}
+        >
+          <div>
+            <label htmlFor="upload-password" className="block text-sm font-medium">
+              PDF password
+            </label>
+            <input
+              id="upload-password"
+              type="password"
+              autoComplete="off"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className={fieldClass}
+            />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(event) => setRemember(event.target.checked)}
+            />
+            Remember for this bank (macOS Keychain)
+          </label>
+          <button
+            type="submit"
+            disabled={!password || busy}
+            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
+          >
+            Unlock and upload
+          </button>
+        </form>
+      )}
+
+      {accountReady && !passwordNeeded && (
         <button
           type="button"
-          onClick={upload}
+          onClick={() => upload()}
           disabled={!file || busy}
           className="mt-4 rounded bg-blue-600 px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50"
         >
@@ -305,6 +369,7 @@ export function UploadPanel({ onImported }: { onImported: () => void }) {
           file={file}
           accountId={Number(accountId)}
           details={mappingDetails}
+          unlock={unlock}
           onImported={finishImport}
           onCancel={() => setMappingDetails(null)}
         />

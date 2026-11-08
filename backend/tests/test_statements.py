@@ -228,7 +228,7 @@ def test_malformed_mapping_is_invalid(client):
     assert response.json()["error"]["code"] == "csv_mapping_invalid"
 
 
-def test_pdf_upload_is_not_supported_yet(client):
+def test_damaged_pdf_is_unreadable(client):
     account_id = create_account(client, "chase")
 
     response = client.post(
@@ -237,8 +237,8 @@ def test_pdf_upload_is_not_supported_yet(client):
         files={"file": ("statement.pdf", b"%PDF-1.7\n", "application/pdf")},
     )
 
-    assert response.status_code == 415
-    assert response.json()["error"]["code"] == "unsupported_file_type"
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "pdf_unreadable"
 
 
 def test_upload_to_unknown_account_is_not_found(client):
