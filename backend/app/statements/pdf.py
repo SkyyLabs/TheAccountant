@@ -91,10 +91,11 @@ def _ruled_table_rows(data: bytes) -> list[list[str]]:
 
 
 def _docling_rows(data: bytes, models_path: Path) -> list[list[str]]:
+    # First, so a missing Docling or missing models is reported before any Docling import.
+    converter = _docling_converter(models_path)
     from docling.datamodel.base_models import DocumentStream
     from docling_core.types.doc import TableItem, TextItem
 
-    converter = _docling_converter(models_path)
     result = converter.convert(DocumentStream(name="statement.pdf", stream=io.BytesIO(data)))
     rows: list[list[str]] = []
     for item, _level in result.document.iterate_items():
