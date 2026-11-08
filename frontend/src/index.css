@@ -1,0 +1,7 @@
+@import "tailwindcss";
+
+/* System font stack only: the app is fully offline, no web fonts. */
+:root {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light dark;
+}
