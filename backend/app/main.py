@@ -13,10 +13,12 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from app import __version__, db
 from app.config import REPO_ROOT, Settings
 from app.errors import ApiError, error_response, install_error_handlers
-from app.statements import csv_import, passwords, pdf
+from app.llm import get_llm_provider
+from app.statements import csv_import, layout, passwords, pdf
 from app.statements.csv_import import CsvError, CsvMapping
 from app.statements.dates import FORMATS
 from app.statements.pdf import PdfError
+from app.statements.reconciliation import find_balance, reconcile
 
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
@@ -83,6 +85,10 @@ class Statement(BaseModel):
     period_start: str | None
     period_end: str | None
     reconciliation_status: Literal["reconciled", "unreconciled", "unverifiable"]
+    opening_balance_minor: int | None
+    closing_balance_minor: int | None
+    # Stated closing balance minus the closing balance the transactions imply.
+    reconciliation_difference_minor: int | None
     row_count: int
     imported_count: int
     duplicate_count: int
@@ -99,6 +105,10 @@ class PreviewTransaction(BaseModel):
 class StatementPreview(BaseModel):
     row_count: int
     skipped_row_count: int
+    opening_balance_minor: int | None
+    closing_balance_minor: int | None
+    reconciliation_status: Literal["reconciled", "unreconciled", "unverifiable"]
+    reconciliation_difference_minor: int | None
     transactions: list[PreviewTransaction]
 
 
@@ -133,6 +143,7 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
 
     app = FastAPI(title="TheAccountant", version=__version__, lifespan=lifespan)
     app.state.settings = settings
+    app.state.llm = get_llm_provider(settings)
     install_error_handlers(app)
     max_upload_bytes = settings.max_upload_mb * 1024 * 1024
 
@@ -205,10 +216,16 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
     ) -> StatementPreview:
         account = require_account(connection, account_id)
         rows = statement_rows(read_upload(file), account, password)
-        parsed, skipped = apply_mapping_or_422(rows, parse_mapping(mapping), account["currency"])
+        confirmed = parse_mapping(mapping)
+        parsed, skipped = apply_mapping_or_422(rows, confirmed, account["currency"])
+        opening, closing, status, difference = check_balances(rows, confirmed, parsed, account)
         return StatementPreview(
             row_count=len(parsed),
             skipped_row_count=skipped,
+            opening_balance_minor=opening,
+            closing_balance_minor=closing,
+            reconciliation_status=status,
+            reconciliation_difference_minor=difference,
             transactions=[
                 PreviewTransaction(
                     date=row.date,
@@ -246,14 +263,14 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
             # replaces the saved one.
             passwords.save_password(account["bank_id"], password)
         if mapping is not None:
-            confirmed = parse_mapping(mapping)
-            parsed, _ = apply_mapping_or_422(rows, confirmed, account["currency"])
+            used = parse_mapping(mapping)
+            parsed, _ = apply_mapping_or_422(rows, used, account["currency"])
         else:
             if account["csv_mapping"] is None:
-                raise mapping_required(rows, account, "map the CSV columns for this account")
-            saved = CsvMapping.model_validate_json(account["csv_mapping"])
+                raise mapping_required(rows, account, "map the columns for this account")
+            used = CsvMapping.model_validate_json(account["csv_mapping"])
             try:
-                parsed, _ = csv_import.apply_mapping(rows, saved, account["currency"])
+                parsed, _ = csv_import.apply_mapping(rows, used, account["currency"])
             except CsvError as error:
                 if error.code != "csv_mapping_invalid":
                     raise ApiError(422, error.code, str(error)) from None
@@ -262,6 +279,7 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
                 raise mapping_required(rows, account, message) from None
 
         dates = [row.date for row in parsed]
+        opening, closing, status, difference = check_balances(rows, used, parsed, account)
         statement_id = db.create_statement(
             connection,
             sha256=sha256,
@@ -272,13 +290,15 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
             currency=account["currency"],
             period_start=min(dates),
             period_end=max(dates),
-            # CSV exports carry no opening or closing balance to reconcile against.
-            reconciliation_status="unverifiable",
+            opening_balance_minor=opening,
+            closing_balance_minor=closing,
+            reconciliation_status=status,
+            reconciliation_difference_minor=difference,
             transactions=csv_import.to_transactions(parsed, account_id),
         )
         if mapping is not None:
             # Saved only after the import succeeded with it: the user confirmed the preview.
-            db.save_account_csv_mapping(connection, account_id, confirmed.model_dump_json())
+            db.save_account_csv_mapping(connection, account_id, used.model_dump_json())
         return Statement(**dict(db.get_statement(connection, statement_id)))
 
     @app.get("/api/statements")
@@ -343,16 +363,31 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
         except CsvError as error:
             raise ApiError(422, error.code, str(error)) from None
 
+    def check_balances(rows, mapping: CsvMapping, parsed, account: sqlite3.Row):
+        currency = account["currency"]
+        opening = find_balance(rows, mapping.opening_balance_label, currency, last=False)
+        closing = find_balance(rows, mapping.closing_balance_label, currency, last=True)
+        status, difference = reconcile(
+            opening, closing, [row.amount_minor for row in parsed], account["type"]
+        )
+        return opening, closing, status, difference
+
     def mapping_required(rows, account: sqlite3.Row, message: str) -> ApiError:
+        suggestion, source = layout.propose_layout(
+            rows,
+            app.state.llm,
+            account_type=account["type"],
+            currency=account["currency"],
+            default_date_format=account["default_date_format"],
+        )
         return ApiError(
             422,
             "csv_mapping_required",
             message,
             {
                 "rows": rows[: csv_import.SAMPLE_ROWS],
-                "suggested_mapping": csv_import.suggest_mapping(
-                    rows, account["default_date_format"]
-                ),
+                "suggested_mapping": suggestion,
+                "suggestion_source": source,
                 "date_formats": list(FORMATS),
             },
         )

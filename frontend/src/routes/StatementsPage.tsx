@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { UploadPanel } from "../components/statements/UploadPanel";
 import { api } from "../lib/api";
+import { formatMoney } from "../lib/format";
 import type { ReconciliationStatus, Statement } from "../types/api";
 
 const STATUS: Record<ReconciliationStatus, { label: string; hint: string; className: string }> = {
@@ -89,7 +90,12 @@ export function StatementsPage() {
                       <span className={`rounded px-2 py-0.5 text-xs font-medium ${status.className}`}>
                         {status.label}
                       </span>
-                      <span className="ml-2 text-xs text-slate-500">{status.hint}</span>
+                      <span className="ml-2 text-xs text-slate-500">
+                        {statement.reconciliation_status === "unreconciled" &&
+                        statement.reconciliation_difference_minor !== null
+                          ? `Off by ${formatMoney(statement.reconciliation_difference_minor, statement.currency)}`
+                          : status.hint}
+                      </span>
                     </td>
                   </tr>
                 );

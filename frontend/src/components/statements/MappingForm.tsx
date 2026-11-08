@@ -5,6 +5,7 @@ import { formatMoney } from "../../lib/format";
 import type {
   AmountMode,
   CsvMapping,
+  Currency,
   MappingRequiredDetails,
   Statement,
   StatementPreview,
@@ -19,6 +20,8 @@ type Draft = {
   debit_column: string;
   credit_column: string;
   date_format: string;
+  opening_balance_label: string;
+  closing_balance_label: string;
 };
 
 const AMOUNT_MODES: { value: AmountMode; label: string }[] = [
@@ -28,6 +31,19 @@ const AMOUNT_MODES: { value: AmountMode; label: string }[] = [
 ];
 
 const SAMPLE_LINES = 8;
+
+function reconciliationText(preview: StatementPreview, currency: Currency): string {
+  if (preview.reconciliation_status === "unverifiable") {
+    return "Balances not found: totals cannot be checked against the statement.";
+  }
+  const opening = formatMoney(preview.opening_balance_minor ?? 0, currency);
+  const closing = formatMoney(preview.closing_balance_minor ?? 0, currency);
+  if (preview.reconciliation_status === "reconciled") {
+    return `Reconciled: ${opening} plus the transactions equals ${closing}.`;
+  }
+  const difference = formatMoney(preview.reconciliation_difference_minor ?? 0, currency);
+  return `Does not reconcile: from ${opening}, the statement's ${closing} differs by ${difference}. Check the columns and the amount sign.`;
+}
 
 function toMapping(draft: Draft): CsvMapping | null {
   const separate = draft.amount_mode === "debit_credit";
@@ -39,6 +55,8 @@ function toMapping(draft: Draft): CsvMapping | null {
   if (!complete) return null;
   return {
     ...draft,
+    opening_balance_label: draft.opening_balance_label.trim() || null,
+    closing_balance_label: draft.closing_balance_label.trim() || null,
     amount_column: separate ? null : draft.amount_column,
     debit_column: separate ? draft.debit_column : null,
     credit_column: separate ? draft.credit_column : null,
@@ -65,6 +83,8 @@ export function MappingForm({ file, accountId, details, unlock, onImported, onCa
     debit_column: suggestion.debit_column ?? "",
     credit_column: suggestion.credit_column ?? "",
     date_format: suggestion.date_format ?? "",
+    opening_balance_label: suggestion.opening_balance_label ?? "",
+    closing_balance_label: suggestion.closing_balance_label ?? "",
   });
   const [preview, setPreview] = useState<StatementPreview | null>(null);
   const [previewedMapping, setPreviewedMapping] = useState<string | null>(null);
@@ -145,6 +165,11 @@ export function MappingForm({ file, accountId, details, unlock, onImported, onCa
       <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
         First upload for this account. Check the suggestion, preview, then import. The mapping is
         remembered for the next file from this account.
+      </p>
+      <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+        {details.suggestion_source === "llm"
+          ? "Suggested by the local model and checked against every row of the file."
+          : "Suggested from the column names (the local model was unavailable or unsure)."}
       </p>
 
       <div className="mt-3 overflow-x-auto">
@@ -233,6 +258,33 @@ export function MappingForm({ file, accountId, details, unlock, onImported, onCa
         )}
       </div>
 
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {(
+          [
+            ["opening_balance_label", "Opening balance label", "Opening Balance"],
+            ["closing_balance_label", "Closing balance label", "Closing Balance"],
+          ] as const
+        ).map(([field, label, placeholder]) => (
+          <div key={field}>
+            <label htmlFor={`mapping-${field}`} className="block text-sm font-medium">
+              {label}
+            </label>
+            <input
+              id={`mapping-${field}`}
+              value={draft[field]}
+              placeholder={placeholder}
+              aria-describedby="mapping-balance-hint"
+              onChange={(event) => update({ [field]: event.target.value })}
+              className="mt-1 w-full rounded border border-slate-300 bg-white px-2 py-1 dark:border-slate-700 dark:bg-slate-900"
+            />
+          </div>
+        ))}
+        <p id="mapping-balance-hint" className="text-xs text-slate-500 sm:col-span-2">
+          The words in front of the statement balances. With both, the import checks that the
+          transactions add up. Leave empty if the file has none.
+        </p>
+      </div>
+
       {error && (
         <p role="alert" className="mt-3 text-sm text-red-700 dark:text-red-400">
           {error}
@@ -269,6 +321,11 @@ export function MappingForm({ file, accountId, details, unlock, onImported, onCa
               `, ${preview.skipped_row_count} lines without a date or amount skipped`}
             . Check that money out shows a minus sign.
           </p>
+          {preview.transactions[0] && (
+            <p className="mt-1 text-sm font-medium">
+              {reconciliationText(preview, preview.transactions[0].currency)}
+            </p>
+          )}
           <table className="mt-2 w-full text-sm">
             <caption className="sr-only">Preview of parsed transactions</caption>
             <thead>

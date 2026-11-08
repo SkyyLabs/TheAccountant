@@ -24,6 +24,9 @@ const IMPORTED: Statement = {
   period_start: "2026-03-04",
   period_end: "2026-03-20",
   reconciliation_status: "unverifiable",
+  opening_balance_minor: null,
+  closing_balance_minor: null,
+  reconciliation_difference_minor: null,
   row_count: 4,
   imported_count: 3,
   duplicate_count: 1,
@@ -50,11 +53,24 @@ const MAPPING_REQUIRED = {
           debit_column: null,
           credit_column: null,
           date_format: "MM/DD/YYYY",
+          opening_balance_label: "Previous Balance",
+          closing_balance_label: null,
         },
+        suggestion_source: "llm",
         date_formats: ["MM/DD/YYYY", "DD/MM/YYYY"],
       },
     },
   },
+};
+
+const EMPTY_PREVIEW = {
+  row_count: 0,
+  skipped_row_count: 0,
+  opening_balance_minor: null,
+  closing_balance_minor: null,
+  reconciliation_status: "unverifiable",
+  reconciliation_difference_minor: null,
+  transactions: [],
 };
 
 afterEach(() => {
@@ -97,6 +113,10 @@ test("first upload asks for a mapping, previews it, then imports with it", async
       body: {
         row_count: 1,
         skipped_row_count: 0,
+        opening_balance_minor: null,
+        closing_balance_minor: null,
+        reconciliation_status: "unverifiable",
+        reconciliation_difference_minor: null,
         transactions: [
           { date: "2026-03-04", amount_minor: -4210, currency: "USD", description: "GREENLEAF GROCERY" },
         ],
@@ -127,6 +147,8 @@ test("first upload asks for a mapping, previews it, then imports with it", async
     debit_column: null,
     credit_column: null,
     date_format: "MM/DD/YYYY",
+    opening_balance_label: "Previous Balance",
+    closing_balance_label: null,
   });
 });
 
@@ -136,7 +158,7 @@ test("changing the mapping after a preview requires a new preview before import"
     "GET /api/statements": { body: [] },
     "GET /api/accounts": ACCOUNTS,
     "POST /api/statements": MAPPING_REQUIRED,
-    "POST /api/statements/preview": { body: { row_count: 0, skipped_row_count: 0, transactions: [] } },
+    "POST /api/statements/preview": { body: EMPTY_PREVIEW },
   });
   render(<StatementsPage />);
   await chooseChaseAccountAndFile();
@@ -268,7 +290,7 @@ test("preview sends the password but never asks to remember it", async () => {
     "GET /api/accounts": ACCOUNTS,
     "POST /api/statements": () =>
       sent("POST", "/api/statements").length === 1 ? PASSWORD_REQUIRED : MAPPING_REQUIRED,
-    "POST /api/statements/preview": { body: { row_count: 0, skipped_row_count: 0, transactions: [] } },
+    "POST /api/statements/preview": { body: EMPTY_PREVIEW },
   });
   render(<StatementsPage />);
   await chooseChaseAccountAndFile();
@@ -281,4 +303,76 @@ test("preview sends the password but never asks to remember it", async () => {
   const form = sent("POST", "/api/statements/preview")[0].body as FormData;
   expect(form.get("password")).toBe("s3cret");
   expect(form.get("remember")).toBe("false");
+});
+
+
+test("the mapping form says the local model suggested it", async () => {
+  fakeApi({
+    "GET /api/banks": { body: [CHASE] },
+    "GET /api/statements": { body: [] },
+    "GET /api/accounts": ACCOUNTS,
+    "POST /api/statements": MAPPING_REQUIRED,
+  });
+  render(<StatementsPage />);
+
+  await chooseChaseAccountAndFile();
+
+  expect(
+    await screen.findByText("Suggested by the local model and checked against every row of the file."),
+  ).toBeInTheDocument();
+  expect(screen.getByLabelText("Opening balance label")).toHaveValue("Previous Balance");
+});
+
+test("preview says when the balances do not add up and by how much", async () => {
+  fakeApi({
+    "GET /api/banks": { body: [CHASE] },
+    "GET /api/statements": { body: [] },
+    "GET /api/accounts": ACCOUNTS,
+    "POST /api/statements": MAPPING_REQUIRED,
+    "POST /api/statements/preview": {
+      body: {
+        ...EMPTY_PREVIEW,
+        row_count: 1,
+        opening_balance_minor: 50000,
+        closing_balance_minor: 10000,
+        reconciliation_status: "unreconciled",
+        reconciliation_difference_minor: 5790,
+        transactions: [
+          { date: "2026-03-04", amount_minor: -4210, currency: "USD", description: "GREENLEAF GROCERY" },
+        ],
+      },
+    },
+  });
+  render(<StatementsPage />);
+  await chooseChaseAccountAndFile();
+
+  fireEvent.click(await screen.findByRole("button", { name: "Preview" }));
+
+  expect(
+    await screen.findByText(
+      "Does not reconcile: from $500.00, the statement's $100.00 differs by $57.90. Check the columns and the amount sign.",
+    ),
+  ).toBeInTheDocument();
+});
+
+test("an unreconciled statement shows its difference in the list", async () => {
+  fakeApi({
+    "GET /api/banks": { body: [CHASE] },
+    "GET /api/statements": {
+      body: [
+        {
+          ...IMPORTED,
+          reconciliation_status: "unreconciled",
+          opening_balance_minor: 50000,
+          closing_balance_minor: 10000,
+          reconciliation_difference_minor: -1250,
+        },
+      ],
+    },
+  });
+
+  render(<StatementsPage />);
+
+  expect(await screen.findByText("Unreconciled")).toBeInTheDocument();
+  expect(screen.getByText("Off by -$12.50")).toBeInTheDocument();
 });

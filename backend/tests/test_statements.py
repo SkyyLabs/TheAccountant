@@ -81,6 +81,10 @@ def test_preview_shows_parsed_transactions_without_storing(client):
     assert response.json() == {
         "row_count": 3,
         "skipped_row_count": 1,
+        "opening_balance_minor": None,
+        "closing_balance_minor": None,
+        "reconciliation_status": "unverifiable",
+        "reconciliation_difference_minor": None,
         "transactions": [
             {
                 "date": "2026-04-03",
@@ -296,3 +300,118 @@ def test_mapping_required_lists_the_date_formats_to_choose_from(client):
     formats = response.json()["error"]["details"]["date_formats"]
     assert "MM/DD/YYYY" in formats
     assert "DD/MM/YYYY" in formats
+
+
+HDFC_BALANCES_MAPPING = {
+    **HDFC_MAPPING,
+    "header_row": 2,
+    "opening_balance_label": "Opening Balance",
+    "closing_balance_label": "Closing Balance",
+}
+
+
+def test_first_upload_uses_the_local_model_proposal(client):
+    account_id = create_account(client, "hdfc", "bank")
+    client.app.state.llm.script(
+        {
+            "header_line": 3,
+            "date_column": "Date",
+            "description_column": "Narration",
+            "amount_mode": "debit_credit",
+            "amount_column": None,
+            "debit_column": "Withdrawal Amt.",
+            "credit_column": "Deposit Amt.",
+            "opening_balance_label": "Opening Balance",
+            "closing_balance_label": "Closing Balance",
+        }
+    )
+
+    response = upload(client, account_id, "hdfc/savings_balances_2026_04.csv")
+
+    details = response.json()["error"]["details"]
+    assert details["suggestion_source"] == "llm"
+    assert details["suggested_mapping"]["closing_balance_label"] == "Closing Balance"
+
+
+def test_without_the_model_the_heuristic_still_finds_balance_labels(client):
+    account_id = create_account(client, "hdfc", "bank")
+
+    response = upload(client, account_id, "hdfc/savings_balances_2026_04.csv")
+
+    details = response.json()["error"]["details"]
+    assert details["suggestion_source"] == "heuristic"
+    assert details["suggested_mapping"]["opening_balance_label"] == "opening balance"
+
+
+def test_statement_whose_balances_add_up_is_reconciled(client):
+    account_id = create_account(client, "hdfc", "bank")
+
+    response = upload(
+        client, account_id, "hdfc/savings_balances_2026_04.csv", HDFC_BALANCES_MAPPING
+    )
+
+    statement = response.json()
+    assert statement["reconciliation_status"] == "reconciled"
+    assert statement["opening_balance_minor"] == 12470678
+    assert statement["closing_balance_minor"] == 26345678
+    assert statement["reconciliation_difference_minor"] == 0
+
+
+def test_statement_that_does_not_add_up_is_unreconciled_with_the_difference(client):
+    account_id = create_account(client, "hdfc", "bank")
+    content = (
+        b"Opening Balance,1000.00\n"
+        b"Date,Narration,Withdrawal Amt.,Deposit Amt.\n"
+        b"03/04/26,SHOP,100.00,\n"
+        b",Closing Balance 901.00,,\n"
+    )
+    mapping = {**HDFC_BALANCES_MAPPING, "header_row": 1}
+
+    response = client.post(
+        "/api/statements",
+        data={"account_id": str(account_id), "mapping": json.dumps(mapping)},
+        files={"file": ("off.csv", content, "text/csv")},
+    )
+
+    statement = response.json()
+    assert statement["reconciliation_status"] == "unreconciled"
+    assert statement["reconciliation_difference_minor"] == 100
+
+
+def test_card_statement_reconciles_with_charges_raising_the_balance(client):
+    account_id = create_account(client, "chase", "credit_card")
+    content = (
+        b"Previous Balance,$500.00\n"
+        b"Transaction Date,Description,Amount\n"
+        b"03/04/2026,GREENLEAF GROCERY,-42.10\n"
+        b"03/09/2026,METRO TRANSIT,-2.75\n"
+        b"03/12/2026,PAYMENT THANK YOU,500.00\n"
+        b"New Balance,$44.85\n"
+    )
+    mapping = {
+        **CHASE_MAPPING,
+        "header_row": 1,
+        "opening_balance_label": "Previous Balance",
+        "closing_balance_label": "New Balance",
+    }
+
+    response = client.post(
+        "/api/statements",
+        data={"account_id": str(account_id), "mapping": json.dumps(mapping)},
+        files={"file": ("card.csv", content, "text/csv")},
+    )
+
+    assert response.json()["reconciliation_status"] == "reconciled"
+
+
+def test_preview_shows_whether_the_statement_reconciles(client):
+    account_id = create_account(client, "hdfc", "bank")
+    content = (FIXTURES / "hdfc/savings_balances_2026_04.csv").read_bytes()
+
+    response = client.post(
+        "/api/statements/preview",
+        data={"account_id": str(account_id), "mapping": json.dumps(HDFC_BALANCES_MAPPING)},
+        files={"file": ("s.csv", content, "text/csv")},
+    )
+
+    assert response.json()["reconciliation_status"] == "reconciled"

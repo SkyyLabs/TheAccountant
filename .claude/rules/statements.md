@@ -12,6 +12,7 @@ Applies when touching `backend/app/statements/` - upload, fingerprinting, PDF un
 ## Dates
 
 - The date format is a property of the **bank profile** (US banks `MM/DD/YYYY`, Indian banks `DD/MM/YYYY` or `DD-Mon-YY`). Never infer it per row - `03/04` is valid both ways and a wrong guess silently swaps day and month.
+- On the first upload for an account, `statements/layout.py` proposes one format for the **whole file**: the bank's default first, then formats with the same day/month order, keeping the first that parses every row. The user confirms it in the preview and it is saved on the account; later uploads use the saved format only.
 - Store dates as ISO `YYYY-MM-DD`. Statement periods (start/end) are stored on the statement.
 
 ## Banks and profiles

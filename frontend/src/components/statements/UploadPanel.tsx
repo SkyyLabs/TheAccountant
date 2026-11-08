@@ -355,6 +355,13 @@ export function UploadPanel({ onImported }: { onImported: () => void }) {
         </button>
       )}
 
+      {busy && (
+        <p role="status" className="mt-3 text-sm text-slate-600 dark:text-slate-400">
+          Reading the statement. The first file from an account can take a little while: the
+          local model reads its layout.
+        </p>
+      )}
+
       {message && (
         <p
           role={message.kind === "error" ? "alert" : "status"}
