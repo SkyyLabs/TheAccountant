@@ -6,9 +6,9 @@ import type { Category, Transaction } from "../types/api";
 import { TransactionsPage } from "./TransactionsPage";
 
 const CATEGORIES: Category[] = [
-  { id: 2, name: "Groceries", region: "both", is_default: true },
-  { id: 3, name: "Dining", region: "both", is_default: true },
-  { id: 1, name: "Uncategorized", region: "both", is_default: true },
+  { id: 2, name: "Groceries", region: "both", is_default: true, excluded_from_spending: false },
+  { id: 3, name: "Dining", region: "both", is_default: true, excluded_from_spending: false },
+  { id: 1, name: "Uncategorized", region: "both", is_default: true, excluded_from_spending: false },
 ];
 
 const SALARY: Transaction = {

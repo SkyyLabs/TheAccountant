@@ -120,6 +120,8 @@ export type Category = {
   name: string;
   region: Region;
   is_default: boolean;
+  /** Transfers and card payments: left out of spending totals so nothing counts twice. */
+  excluded_from_spending: boolean;
 };
 
 export type MatchType = "exact" | "contains";

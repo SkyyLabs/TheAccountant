@@ -264,6 +264,8 @@ class TransactionFilters:
     amount_min_minor: int | None = None
     amount_max_minor: int | None = None
     text: str | None = None
+    # Leave out categories marked excluded_from_spending (transfers, card payments).
+    spending_only: bool = False
 
 
 def _where(filters: TransactionFilters) -> tuple[str, list]:
@@ -292,6 +294,8 @@ def _where(filters: TransactionFilters) -> tuple[str, list]:
     if filters.amount_max_minor is not None:
         conditions.append("abs(transactions.amount_minor) <= ?")
         params.append(filters.amount_max_minor)
+    if filters.spending_only:
+        conditions.append("coalesce(categories.excluded_from_spending, 0) = 0")
     if filters.text:
         escaped = filters.text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         conditions.append("transactions.description LIKE ? ESCAPE '\\'")
@@ -437,13 +441,15 @@ def transactions_not_set_by_user(connection: sqlite3.Connection) -> list[sqlite3
 
 def list_categories(connection: sqlite3.Connection) -> list[sqlite3.Row]:
     return connection.execute(
-        "SELECT id, name, region, is_default FROM categories ORDER BY name = 'Uncategorized', name"
+        "SELECT id, name, region, is_default, excluded_from_spending FROM categories"
+        " ORDER BY name = 'Uncategorized', name"
     ).fetchall()
 
 
 def get_category(connection: sqlite3.Connection, category_id: int) -> sqlite3.Row | None:
     return connection.execute(
-        "SELECT id, name, region, is_default FROM categories WHERE id = ?", (category_id,)
+        "SELECT id, name, region, is_default, excluded_from_spending FROM categories WHERE id = ?",
+        (category_id,),
     ).fetchone()
 
 
@@ -461,10 +467,22 @@ def create_category(connection: sqlite3.Connection, name: str, region: str) -> s
     return get_category(connection, category_id)
 
 
-def rename_category(connection: sqlite3.Connection, category_id: int, name: str) -> None:
-    """Raises sqlite3.IntegrityError if the name exists."""
+def update_category(
+    connection: sqlite3.Connection,
+    category_id: int,
+    *,
+    name: str | None = None,
+    excluded_from_spending: bool | None = None,
+) -> None:
+    """Raises sqlite3.IntegrityError if the new name exists."""
     with connection:
-        connection.execute("UPDATE categories SET name = ? WHERE id = ?", (name, category_id))
+        if name is not None:
+            connection.execute("UPDATE categories SET name = ? WHERE id = ?", (name, category_id))
+        if excluded_from_spending is not None:
+            connection.execute(
+                "UPDATE categories SET excluded_from_spending = ? WHERE id = ?",
+                (int(excluded_from_spending), category_id),
+            )
 
 
 def category_in_use(connection: sqlite3.Connection, category_id: int) -> bool:

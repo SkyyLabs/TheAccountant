@@ -9,6 +9,7 @@ Applies when touching `frontend/` (Vite + React + TypeScript + Tailwind + shadcn
 - **Money display:** format from minor units with the transaction's currency - `en-US` grouping for USD, `en-IN` (lakh/crore) for INR. Never show a mixed-currency total; show one figure per currency.
 - **Filters** (date range, category, amount range, account, currency, text search) are reflected in the URL query string so views are shareable and survive reload. The URL parameter names are the backend's (`components/transactions/Filters.tsx` `FILTER_KEYS`), so the page passes them through unchanged.
 - **First upload for a bank:** dialog asks for the bank (defaults + "Other: type a name") and, when the backend replies `pdf_password_required`, the password with a "remember for this bank" checkbox (on by default). Never store the password in browser storage.
+- **Charts** (Recharts) are `aria-hidden` and each has a "Show as table" alternative with the same figures; one section per currency, never combined. Overview sends `spending_only=true` unless the user unticks it.
 - **Never hide uncertainty:** `needs_review`, `unreconciled` and `unverifiable` are visible badges with an action, not colour alone.
 - **State:** local React state and URL params; add a data library (e.g. TanStack Query) only when caching across tabs needs it. `localStorage` holds UI preferences only - never financial data.
 - **Accessible by default:** labelled inputs, visible focus, keyboard-operable tables and dialogs, loading and empty states, clear errors.

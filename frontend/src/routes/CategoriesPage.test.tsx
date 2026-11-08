@@ -5,9 +5,9 @@ import type { Category, Rule } from "../types/api";
 import { CategoriesPage } from "./CategoriesPage";
 
 const CATEGORIES: Category[] = [
-  { id: 3, name: "Dining", region: "both", is_default: true },
-  { id: 9, name: "Domestic Help", region: "IN", is_default: true },
-  { id: 1, name: "Uncategorized", region: "both", is_default: true },
+  { id: 3, name: "Dining", region: "both", is_default: true, excluded_from_spending: false },
+  { id: 9, name: "Domestic Help", region: "IN", is_default: true, excluded_from_spending: false },
+  { id: 1, name: "Uncategorized", region: "both", is_default: true, excluded_from_spending: false },
 ];
 
 const RULE: Rule = {
@@ -104,7 +104,7 @@ test("a category is added for one region", async () => {
     "GET /api/rules": { body: [] },
     "POST /api/categories": {
       status: 201,
-      body: { id: 30, name: "Pets", region: "US", is_default: false },
+      body: { id: 30, name: "Pets", region: "US", is_default: false, excluded_from_spending: false },
     },
   });
   render(<CategoriesPage />);
@@ -125,7 +125,7 @@ test("a category is renamed", async () => {
     "GET /api/categories": { body: CATEGORIES },
     "GET /api/rules": { body: [] },
     "PATCH /api/categories/3": {
-      body: { id: 3, name: "Eating Out", region: "both", is_default: true },
+      body: { id: 3, name: "Eating Out", region: "both", is_default: true, excluded_from_spending: false },
     },
   });
   render(<CategoriesPage />);
@@ -139,5 +139,25 @@ test("a category is renamed", async () => {
   expect(await screen.findByText("Renamed to Eating Out.")).toBeInTheDocument();
   expect(JSON.parse(String(sent("PATCH", "/api/categories/3")[0].body))).toEqual({
     name: "Eating Out",
+  });
+});
+
+
+test("a category can be left out of spending totals", async () => {
+  const { sent } = fakeApi({
+    "GET /api/categories": { body: CATEGORIES },
+    "GET /api/rules": { body: [] },
+    "PATCH /api/categories/3": {
+      body: { id: 3, name: "Dining", region: "both", is_default: true, excluded_from_spending: true },
+    },
+  });
+  render(<CategoriesPage />);
+  await screen.findByRole("button", { name: "Rename Dining" });
+
+  fireEvent.click(screen.getAllByLabelText("Not spending")[0]);
+
+  expect(await screen.findByText("Dining is now left out of spending totals.")).toBeInTheDocument();
+  expect(JSON.parse(String(sent("PATCH", "/api/categories/3")[0].body))).toEqual({
+    excluded_from_spending: true,
   });
 });

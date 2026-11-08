@@ -123,6 +123,8 @@ export const api = {
     postJson<Category>("/categories", { name, region }),
   renameCategory: (categoryId: number, name: string) =>
     sendJson<Category>("PATCH", `/categories/${categoryId}`, { name }),
+  setExcludedFromSpending: (categoryId: number, excluded: boolean) =>
+    sendJson<Category>("PATCH", `/categories/${categoryId}`, { excluded_from_spending: excluded }),
   deleteCategory: (categoryId: number) =>
     request<void>(`/categories/${categoryId}`, { method: "DELETE" }),
   listRules: () => request<Rule[]>("/rules"),

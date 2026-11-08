@@ -20,6 +20,6 @@ Applies when touching `backend/app/db.py`, `backend/app/migrations/`, or any SQL
 - `statement_files`: sha256 (unique), filename, mime, bytes BLOB, uploaded_at
 - `statements`: file_id, account_id, currency, period start/end, opening/closing balance, reconciliation status and difference, row/imported/duplicate counts, categorization_status (pending / done / llm_unavailable)
 - `transactions`: statement_id, account_id, row_index, date, amount_minor, currency, description, normalized_description, merchant_key, raw_row JSON, source (parser / llm), needs_review, fingerprint (unique)
-- `categories`: name (unique), region (US / IN / both), is_default; `Uncategorized` cannot be renamed or deleted
+- `categories`: name (unique), region (US / IN / both), is_default, excluded_from_spending (Transfers and Card Payments by default, so a card payment is not counted as spending twice); `Uncategorized` cannot be renamed or deleted
 - `category_assignments`: transaction_id, category_id, source (rule / cache / llm / user), needs_review, created_at - latest row wins
 - `rules`: match type, pattern, optional amount range, category_id, priority

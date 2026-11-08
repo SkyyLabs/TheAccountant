@@ -135,3 +135,21 @@ def test_rule_pattern_without_letters_is_rejected(client):
     )
 
     assert response.status_code == 422
+
+
+def test_transfers_and_card_payments_are_excluded_from_spending_by_default(client):
+    excluded = {
+        c["name"] for c in client.get("/api/categories").json() if c["excluded_from_spending"]
+    }
+
+    assert excluded == {"Transfers", "Card Payments"}
+
+
+def test_category_can_be_excluded_from_spending(client):
+    response = client.patch(
+        f"/api/categories/{category_id(client, 'Investments')}",
+        json={"excluded_from_spending": True},
+    )
+
+    assert response.json()["excluded_from_spending"] is True
+    assert response.json()["name"] == "Investments"
