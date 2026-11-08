@@ -79,6 +79,14 @@ def main() -> int:
             ask(reason)
             return 0
 
+    if re.search(r"\b(git\s+commit|gh\s+pr\s+(create|edit|comment))\b", normalized):
+        if "co-authored-by" in normalized:
+            ask("message contains a Co-Authored-By trailer (never add AI attribution)")
+            return 0
+        if "\u2014" in command:
+            ask("message contains an em dash (never use em dashes)")
+            return 0
+
     if re.search(r"\bgit\s+(commit|merge|cherry-pick|rebase)\b", normalized):
         branch = current_branch()
         if branch in PROTECTED_BRANCHES:

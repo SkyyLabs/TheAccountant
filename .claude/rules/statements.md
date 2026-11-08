@@ -1,6 +1,6 @@
 # Statement parsing, money and dates
 
-Applies when touching `backend/app/statements/` — upload, fingerprinting, PDF unlock, parsing, reconciliation, dedupe. This is where silent correctness bugs live.
+Applies when touching `backend/app/statements/` - upload, fingerprinting, PDF unlock, parsing, reconciliation, dedupe. This is where silent correctness bugs live.
 
 ## Money
 
@@ -11,7 +11,7 @@ Applies when touching `backend/app/statements/` — upload, fingerprinting, PDF 
 
 ## Dates
 
-- The date format is a property of the **bank profile** (US banks `MM/DD/YYYY`, Indian banks `DD/MM/YYYY` or `DD-Mon-YY`). Never infer it per row — `03/04` is valid both ways and a wrong guess silently swaps day and month.
+- The date format is a property of the **bank profile** (US banks `MM/DD/YYYY`, Indian banks `DD/MM/YYYY` or `DD-Mon-YY`). Never infer it per row - `03/04` is valid both ways and a wrong guess silently swaps day and month.
 - Store dates as ISO `YYYY-MM-DD`. Statement periods (start/end) are stored on the statement.
 
 ## Banks and profiles

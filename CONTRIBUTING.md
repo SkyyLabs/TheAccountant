@@ -30,7 +30,7 @@ A bug in the released version: branch `hotfix/<name>` from `prod`, PR into `prod
 
 **Optimize pull requests for a human reader.** Someone should be able to read a PR start to finish in a few minutes; a 5-file PR gets reviewed, a 33-file PR gets rubber-stamped.
 
-- A milestone is not automatically one PR. Split at natural seams — scaffolding, configuration, application logic, CI — each stands on its own.
+- A milestone is not automatically one PR. Split at natural seams - scaffolding, configuration, application logic, CI - each stands on its own.
 - Every PR leaves the project runnable.
 - Prefer several sequential `feature/*` branches over one broad one:
 
@@ -40,14 +40,14 @@ feature/frontend-shell          # Vite app with the five tabs
 feature/statement-upload        # upload, fingerprint, duplicate detection
 ```
 
-Generated scaffolding is the one reasonable exception — a framework's initial output cannot usefully be halved. Say so in the PR description.
+Generated scaffolding is the one reasonable exception - a framework's initial output cannot usefully be halved. Say so in the PR description.
 
 ## Pull request workflow
 
 1. Branch from `dev`.
 2. Run `make verify` locally; it must pass.
 3. Open the PR against the correct target branch, using the template.
-4. Request AI review. Check the review covers the **current head commit** — a review of an earlier commit says nothing about what you are about to merge.
+4. Request AI review. Check the review covers the **current head commit** - a review of an earlier commit says nothing about what you are about to merge.
 5. Address valid findings; note anything intentionally declined, with reasoning, in the PR thread.
 6. Re-run review if the changes were substantial.
 7. Merge only once review is acceptable and CI is green.

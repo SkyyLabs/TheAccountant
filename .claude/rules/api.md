@@ -18,6 +18,6 @@ Applies when touching `backend/app/main.py` and route modules.
 - Long work (LLM categorization of a large statement) runs in a background task; the UI polls statement status. Parsing itself is synchronous.
 - Fail at startup on bad config (non-loopback `OLLAMA_URL`, unknown `LLM_PROVIDER`).
 
-## Endpoint surface (planned — keep current)
+## Endpoint surface (planned: keep current)
 
 `GET /api/health` · `GET /api/banks` · `POST /api/banks` · `POST /api/statements` (multipart: file, bank_id, optional password, remember) · `GET /api/statements` · `GET /api/statements/{id}` · `POST /api/statements/{id}/reprocess` · `GET /api/transactions` (filters: date_from, date_to, category_ids, amount_min, amount_max, account_ids, currency, q) · `PATCH /api/transactions/{id}` (category) · `GET /api/summary` (by month/category/currency) · `GET|POST|PATCH|DELETE /api/categories` · `GET|POST|PATCH|DELETE /api/rules` · `POST /api/chat`

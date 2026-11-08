@@ -11,7 +11,7 @@
 
 ## Milestone
 
-<!-- e.g. M3 — PDF statements -->
+<!-- e.g. M3 - PDF statements -->
 
 ## Changes
 

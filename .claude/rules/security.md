@@ -31,7 +31,7 @@ Never log transaction descriptions, amounts, balances, account or card numbers, 
 
 ## Destructive-command guard
 
-A PreToolUse hook (`.claude/hooks/guard-destructive.py`, wired in `.claude/settings.json`) forces a confirmation on destructive Bash commands — recursive `rm`, deleting the database, hand-written writes to SQLite, force push, `git reset --hard`, staging data files — and on pushing or committing directly to `stage`/`prod`. It is a safety net, not a sandbox: approve intentional work, never route around it.
+A PreToolUse hook (`.claude/hooks/guard-destructive.py`, wired in `.claude/settings.json`) forces a confirmation on destructive Bash commands - recursive `rm`, deleting the database, hand-written writes to SQLite, force push, `git reset --hard`, staging data files - and on pushing or committing directly to `stage`/`prod`. It is a safety net, not a sandbox: approve intentional work, never route around it.
 
 ## Future work
 
