@@ -54,6 +54,14 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - Verified: `make verify` (ruff clean, 88 backend tests, frontend 6 tests and build). Mutation-checked: Dr/Cr swap, sign-conflict check, DD/MM vs MM/DD swap, unknown-bank check each fail a test.
 - Not verified: the default date formats for the 8 banks are best guesses, not checked against real exports. The M2b mapping preview lets the user correct them.
 
+### M2b - CSV upload and import
+- Migration `0003`: `statement_files` (SHA-256 unique, original bytes), `statements` (period, reconciliation status, row/imported/duplicate counts), `transactions` (ISO date, signed minor units, raw row JSON, fingerprint unique).
+- `statements/csv_import.py`: header-row and column suggestion from header names, `CsvMapping` (signed / inverted / debit_credit amounts, declared date format), strict row parsing (a bad row rejects the file; rows with no date or no amount are skipped and counted), fingerprints of account + date + amount + normalized description + occurrence within the statement.
+- API: `POST /api/statements/preview`, `POST /api/statements` (409 `duplicate_statement`, 422 `csv_mapping_required` with rows and a suggestion, 415 for PDF, 413 over `MAX_UPLOAD_MB`), `GET /api/statements`, `GET /api/statements/{id}`. The mapping is saved per account only after an import with it succeeds. CSV statements are `unverifiable` (no balances).
+- Dependency: `python-multipart` 0.0.33 (FastAPI needs it for file uploads).
+- Verified: `make verify`; 8 mutation checks (occurrence index, card inversion, empty-amount skip, description normalization, SHA dedupe, mapping save, fingerprint conflict skip, PDF check) each fail a test.
+- Not verified: the size limit has two layers (Content-Length middleware, read cap in the route); the test passes with either alone, so neither is checked separately. Fixture layouts are modelled on common bank exports, not checked against real ones.
+
 ---
 
 ## Architecture decisions
@@ -87,7 +95,6 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 ## Next tasks
 
 - **When development is done (user request, 2026-11-08):** add a Read deny rule for real statements back to `.claude/settings.json`. It was removed because `Read(./statements/**)` also matched `backend/app/statements/` and blocked the parser code. Re-add it in a form that only covers a root-level folder and confirm `backend/app/statements/` stays readable.
-- M2b: upload and CSV import (statement files, statements, transactions; mapping preview saved per account).
 - M2c: upload dialog, mapping preview, statements list, basic transactions table.
 
 1. **M2 - Upload and CSV import:** file fingerprint dedupe; bank picker on first upload (defaults: Chase, Discover, Capital One, SoFi, ICICI, HDFC, SBI, Axis, plus "Other"); per-bank currency/date format/account type; CSV import with column mapping saved per bank.

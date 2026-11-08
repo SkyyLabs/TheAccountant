@@ -16,10 +16,10 @@ Applies when touching `backend/app/db.py`, `backend/app/migrations/`, or any SQL
 ## Tables (planned in M1-M4; keep current)
 
 - `banks`: profiles: id, name, country, currency, date format, parsing rules JSON, is_default
-- `accounts`: bank_id, type (bank / credit_card), display name, last 4 digits only
+- `accounts`: bank_id, type (bank / credit_card), display name (last 4 digits only, never a full number), csv_mapping JSON
 - `statement_files`: sha256 (unique), filename, mime, bytes BLOB, uploaded_at
-- `statements`: file_id, account_id, period start/end, opening/closing balance, reconciliation status and difference
-- `transactions`: statement_id, account_id, date, amount_minor, currency, description, normalized_merchant, raw_row JSON, source (parser / llm), needs_review, fingerprint (unique)
+- `statements`: file_id, account_id, currency, period start/end, opening/closing balance, reconciliation status and difference, row/imported/duplicate counts
+- `transactions`: statement_id, account_id, row_index, date, amount_minor, currency, description, normalized_description, raw_row JSON, source (parser / llm), needs_review, fingerprint (unique)
 - `categories`: name, parent_id, region (US / IN / both)
 - `category_assignments`: transaction_id, category_id, source (rule / cache / llm / user), created_at - latest row wins
 - `rules`: match type, pattern, optional amount range, category_id, priority

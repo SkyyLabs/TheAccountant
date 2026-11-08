@@ -1,4 +1,5 @@
-"""One error shape for every failure: {"error": {"code", "message"}}."""
+"""One error shape for every failure: {"error": {"code", "message"}}, plus "details" when
+the client needs data to recover (the existing statement id, CSV headers to map)."""
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -7,23 +8,29 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 class ApiError(Exception):
-    def __init__(self, status_code: int, code: str, message: str) -> None:
+    def __init__(
+        self, status_code: int, code: str, message: str, details: dict | None = None
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
+        self.details = details
 
 
-def error_response(status_code: int, code: str, message: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=status_code, content={"error": {"code": code, "message": message}}
-    )
+def error_response(
+    status_code: int, code: str, message: str, details: dict | None = None
+) -> JSONResponse:
+    error: dict = {"code": code, "message": message}
+    if details is not None:
+        error["details"] = details
+    return JSONResponse(status_code=status_code, content={"error": error})
 
 
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(ApiError)
     async def handle_api_error(_: Request, exc: ApiError) -> JSONResponse:
-        return error_response(exc.status_code, exc.code, exc.message)
+        return error_response(exc.status_code, exc.code, exc.message, exc.details)
 
     @app.exception_handler(RequestValidationError)
     async def handle_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:

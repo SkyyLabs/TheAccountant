@@ -1,0 +1,9 @@
+EXAMPLE BANK STATEMENT,,,,,,
+Account No :,XXXXXXXX0000,,,,,
+,,,,,,
+Date,Narration,Chq./Ref.No.,Value Dt,Withdrawal Amt.,Deposit Amt.,Closing Balance
+03/04/26,UPI-SHARMA KIRANA STORE,0000000001,03/04/26,"1,250.00",,"1,23,456.78"
+05/04/26,SALARY EXAMPLE CORP,0000000002,05/04/26,,"1,50,000.00","2,72,206.78"
+11/04/26,ATM WDL EXAMPLE BRANCH,0000000003,11/04/26,"10,000.00",,"2,62,206.78"
+,,,,,,
+*** End of statement ***,,,,,,
