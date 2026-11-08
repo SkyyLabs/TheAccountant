@@ -114,13 +114,15 @@ def create_account(
 
 
 _STATEMENT_COLUMNS = (
-    "SELECT statements.id, statements.account_id, accounts.bank_id, accounts.name AS account_name,"
+    "SELECT statements.id, statements.account_id, accounts.bank_id, banks.name AS bank_name,"
+    " accounts.name AS account_name,"
     " statement_files.filename, statements.currency, period_start, period_end,"
     " reconciliation_status, row_count, imported_count, duplicate_count,"
     " statement_files.uploaded_at"
     " FROM statements"
     " JOIN statement_files ON statement_files.id = statements.file_id"
     " JOIN accounts ON accounts.id = statements.account_id"
+    " JOIN banks ON banks.id = accounts.bank_id"
 )
 
 
@@ -211,3 +213,15 @@ def create_statement(
             (imported_count, len(transactions) - imported_count, statement_id),
         )
     return statement_id
+
+
+def list_transactions(connection: sqlite3.Connection) -> list[sqlite3.Row]:
+    return connection.execute(
+        "SELECT transactions.id, transactions.statement_id, transactions.account_id,"
+        " accounts.name AS account_name, accounts.bank_id, banks.name AS bank_name,"
+        " transactions.date, transactions.amount_minor, transactions.currency,"
+        " transactions.description, transactions.needs_review"
+        " FROM transactions JOIN accounts ON accounts.id = transactions.account_id"
+        " JOIN banks ON banks.id = accounts.bank_id"
+        " ORDER BY transactions.date DESC, transactions.id DESC"
+    ).fetchall()

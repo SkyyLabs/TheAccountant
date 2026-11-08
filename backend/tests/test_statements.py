@@ -114,6 +114,7 @@ def test_upload_with_mapping_imports_as_unverifiable(client):
     statement = response.json()
     assert statement["account_id"] == account_id
     assert statement["bank_id"] == "chase"
+    assert statement["bank_name"] == "Chase"
     assert statement["filename"] == "card_2026_03.csv"
     assert statement["currency"] == "USD"
     assert statement["period_start"] == "2026-03-04"
@@ -285,3 +286,13 @@ def test_unknown_statement_is_not_found(client):
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "statement_not_found"
+
+
+def test_mapping_required_lists_the_date_formats_to_choose_from(client):
+    account_id = create_account(client, "chase")
+
+    response = upload(client, account_id, "chase/card_2026_03.csv")
+
+    formats = response.json()["error"]["details"]["date_formats"]
+    assert "MM/DD/YYYY" in formats
+    assert "DD/MM/YYYY" in formats

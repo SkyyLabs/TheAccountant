@@ -75,6 +75,7 @@ class Statement(BaseModel):
     id: int
     account_id: int
     bank_id: str
+    bank_name: str
     account_name: str
     filename: str
     currency: Literal["USD", "INR"]
@@ -98,6 +99,20 @@ class StatementPreview(BaseModel):
     row_count: int
     skipped_row_count: int
     transactions: list[PreviewTransaction]
+
+
+class Transaction(BaseModel):
+    id: int
+    statement_id: int
+    account_id: int
+    account_name: str
+    bank_id: str
+    bank_name: str
+    date: str
+    amount_minor: int
+    currency: Literal["USD", "INR"]
+    description: str
+    needs_review: bool
 
 
 PREVIEW_TRANSACTIONS = 20
@@ -269,6 +284,10 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
             raise ApiError(404, "statement_not_found", f"no statement with id {statement_id}")
         return Statement(**dict(row))
 
+    @app.get("/api/transactions")
+    def list_transactions(connection: Connection) -> list[Transaction]:
+        return [Transaction(**dict(row)) for row in db.list_transactions(connection)]
+
     def read_upload(file: UploadFile) -> bytes:
         # The middleware rejects large requests by Content-Length; this catches chunked ones.
         data = file.file.read(max_upload_bytes + 1)
@@ -319,6 +338,7 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
                 "suggested_mapping": csv_import.suggest_mapping(
                     rows, account["default_date_format"]
                 ),
+                "date_formats": list(FORMATS),
             },
         )
 
