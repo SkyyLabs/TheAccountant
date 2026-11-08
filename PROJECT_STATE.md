@@ -46,6 +46,14 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - `.github/workflows/ci.yml` runs `make setup` + `make verify` on PRs into and pushes to `dev`/`stage`/`prod`.
 - Verified: fresh `make setup` + `make verify` (ruff clean, 18 backend tests, frontend typecheck/lint/6 tests/build). `make run` checked with curl: `/`, `/statements`, `/chat` serve the shell; `/api/health` 200 JSON; `/api/nope` 404 JSON; built asset 200; listener on `127.0.0.1:8765` only. Not verified: visual check in a browser.
 
+### M2a - Banks, accounts, money and dates
+- Migration `0002`: `banks` (8 defaults seeded with country, currency, default date format) and `accounts` (bank, type bank/credit_card, name, CSV mapping slot).
+- `statements/money.py`: `parse_amount(text, currency)` to integer minor units; Western and Indian grouping, `Dr`/`Cr`, parentheses, leading/trailing minus, `$`/`₹`/`Rs.`/code; rejects conflicting signs and extra decimals.
+- `statements/dates.py`: `parse_date(text, date_format)` over 11 named formats, never guessed per row.
+- API: `GET`/`POST /api/banks` ("Other" bank gets a slug id and its country's currency), `GET`/`POST /api/accounts`.
+- Verified: `make verify` (ruff clean, 88 backend tests, frontend 6 tests and build). Mutation-checked: Dr/Cr swap, sign-conflict check, DD/MM vs MM/DD swap, unknown-bank check each fail a test.
+- Not verified: the default date formats for the 8 banks are best guesses, not checked against real exports. The M2b mapping preview lets the user correct them.
+
 ---
 
 ## Architecture decisions
@@ -72,11 +80,15 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 ## Known issues and accepted technical debt
 
 1. `fsevents` (optional macOS file watcher pulled in by Vite) has its install script blocked by npm's default policy. It ships prebuilt and works without it; leave it blocked.
-2. The repository is **public** - real statements, the DB, and exported data must never be committed. `.gitignore` covers `data/`, `*.db`, `statements/`, and `fixtures/real/`; fixtures in git are synthetic only.
+2. The repository is **public** - real statements, the DB, and exported data must never be committed. `.gitignore` covers `/data/`, `*.db`, `/statements/`, `/exports/` (anchored to the repo root so the `backend/app/statements/` module is tracked) and `fixtures/real/`; fixtures in git are synthetic only.
 
 ---
 
 ## Next tasks
+
+- **When development is done (user request, 2026-11-08):** add a Read deny rule for real statements back to `.claude/settings.json`. It was removed because `Read(./statements/**)` also matched `backend/app/statements/` and blocked the parser code. Re-add it in a form that only covers a root-level folder and confirm `backend/app/statements/` stays readable.
+- M2b: upload and CSV import (statement files, statements, transactions; mapping preview saved per account).
+- M2c: upload dialog, mapping preview, statements list, basic transactions table.
 
 1. **M2 - Upload and CSV import:** file fingerprint dedupe; bank picker on first upload (defaults: Chase, Discover, Capital One, SoFi, ICICI, HDFC, SBI, Axis, plus "Other"); per-bank currency/date format/account type; CSV import with column mapping saved per bank.
 2. **M3 - PDF statements:** Keychain-backed password per bank, PDF text/table extraction, per-bank profiles for the defaults, LLM-proposed mapping for unknown layouts with user-confirmed preview, reconciliation, transaction-level dedupe.
