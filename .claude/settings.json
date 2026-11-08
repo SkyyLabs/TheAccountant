@@ -34,7 +34,8 @@
     ],
     "deny": [
       "Read(./.env)",
-      "Read(./.env.*)",
+      "Read(./.env.local)",
+      "Read(./.env.*.local)",
       "Read(./data/**)",
       "Read(./statements/**)",
       "Read(./backend/tests/fixtures/real/**)"

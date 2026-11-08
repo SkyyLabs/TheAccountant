@@ -21,12 +21,12 @@ Bias toward caution over speed. For trivial tasks, use judgment.
 
 ## Commands
 
-Backend targets exist now. The frontend half of `setup`/`run`/`dev` and the frontend checks in `verify` arrive with the M1 frontend shell; until then these commands cover the backend only.
 
 ```bash
 make setup     # venv on Python 3.12 + backend deps + frontend deps
 make run       # build the UI and serve app + API on http://127.0.0.1:8765
-make dev       # backend with reload + Vite dev server
+make dev       # backend with reload on :8765 + Vite dev server on :5173 (proxies /api)
+make build     # build the UI into frontend/dist
 make test      # backend pytest
 make verify    # full check sequence - run before claiming any task done
 ```
@@ -35,7 +35,7 @@ make verify    # full check sequence - run before claiming any task done
 
 Backend is pinned to **Python 3.12** (`/opt/homebrew/bin/python3.12`). Ollama must be running locally (`ollama serve`; check with `curl -s localhost:11434/api/version`).
 
-## Architecture (planned in M1: update when built)
+## Architecture (skeleton built in M1; modules below `db.py` arrive in M2+)
 
 ```text
 backend/                 FastAPI app, Python 3.12, bound to 127.0.0.1 only
@@ -49,7 +49,7 @@ backend/                 FastAPI app, Python 3.12, bound to 127.0.0.1 only
   app/llm/               provider interface, Ollama provider, deterministic mock
   app/chat/              question → fixed query tools → answer
   tests/
-frontend/                Vite + React + TypeScript + Tailwind + shadcn/ui + Recharts
+frontend/                Vite + React + TypeScript 5.9 + Tailwind; shadcn/ui and Recharts added with the first screen that needs them
 data/                    gitignored: accountant.db (the only datastore)
 ```
 
