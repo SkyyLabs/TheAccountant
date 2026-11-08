@@ -66,9 +66,10 @@ def _columns(page: str) -> str:
 
 
 def _ocr_text(unlocked: bytes, models_path: Path) -> str:
+    # First, so missing models or a missing Docling are reported before any Docling import.
+    converter = _docling_converter(models_path)
     from docling.datamodel.base_models import DocumentStream
 
-    converter = _docling_converter(models_path)
     result = converter.convert(DocumentStream(name="statement.pdf", stream=io.BytesIO(unlocked)))
     # Markdown keeps tables as rows of cells, which the model reads well.
     return result.document.export_to_markdown()
