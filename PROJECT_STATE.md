@@ -5,8 +5,8 @@
 > The code is authoritative. If this file and the code disagree, fix this file.
 
 **Last updated:** 2026-11-07
-**Current milestone:** M0 - Repository and workflow
-**Next milestone:** M1 - App skeleton
+**Current milestone:** M1 - App skeleton
+**Next milestone:** M2 - Upload and CSV import
 **Default branch:** `dev`
 **Agent instructions:** synced from LLMTemplates (sky1502/LLMTemplates) `c1ace50` on 2026-11-07
 
@@ -31,13 +31,20 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 
 ---
 
+### M1a - Backend skeleton
+- `backend/` FastAPI app (`create_app()` factory), `config.py` (pydantic-settings, rejects a non-loopback `OLLAMA_URL` and unknown `LLM_PROVIDER` at startup), `errors.py` (one error shape), `db.py` (per-request SQLite connections, numbered `.sql` migrations via `PRAGMA user_version`, each in its own transaction), baseline migration `0001`.
+- `Makefile`: `setup`, `run`, `dev`, `test`, `lint`, `verify` (backend only for now).
+- Verified: `make verify` passes (ruff clean, 12 tests). Loopback test mutation-checked (removing the check fails 2 tests). `make run` serves `GET /api/health` on `127.0.0.1:8765` only and creates the gitignored `data/accountant.db`.
+
+---
+
 ## Architecture decisions
 
 | Decision | Why | Rejected alternative |
 |---|---|---|
 | Browser app on localhost now; desktop wrapper later | Fastest to build and iterate; same code can be wrapped by Tauri/Electron | Desktop app from day one |
 | FastAPI (Python 3.12) backend + Vite/React frontend, served by one process on `127.0.0.1` | Python has the best PDF/table tooling; one `make run` starts everything | Node backend; Next.js |
-| SQLite single file, original uploads stored as BLOBs | User wants documents in the DB so re-uploads are minimized; statements are small | Files on disk + metadata |
+| SQLite single file (not Postgres: one user, offline, no server to run, one-file backup, bundles into a desktop app), original uploads stored as BLOBs | User wants documents in the DB so re-uploads are minimized; statements are small | Files on disk + metadata |
 | Plain `sqlite3` + numbered `.sql` migrations via `PRAGMA user_version` | One user, one file; no ORM or migration framework needed | SQLAlchemy + Alembic |
 | Local Ollama, default `qwen2.5:7b` or `llama3.1:8b`, JSON-schema constrained output | Offline; fits 18 GB M3 Pro; schema output makes categories reliable | Any cloud LLM |
 | Parsers extract amounts/dates; LLM only maps unknown layouts and categorizes | A hallucinated amount is the worst bug a finance app can have | LLM reads the whole statement |
@@ -53,7 +60,7 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 
 ## Known issues and accepted technical debt
 
-1. Nothing is built yet beyond instructions; `make` targets and CI land in M1.
+1. `.env.example` could not be added: the agent deny rule `Read(./.env.*)` in `.claude/settings.json` also matches it. Narrow the rule to real env files, then add it.
 2. The repository is **public** - real statements, the DB, and exported data must never be committed. `.gitignore` covers `data/`, `*.db`, `statements/`, and `fixtures/real/`; fixtures in git are synthetic only.
 
 ---
@@ -61,7 +68,7 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 ## Next tasks
 
 1. **M0 finish:** merge PR #1 into `dev`. Decide whether to delete the now-unused `main` branch.
-2. **M1 - App skeleton:** `Makefile` (`setup`, `run`, `dev`, `test`, `verify`), FastAPI app + config + SQLite migrations, Vite app with the five tabs (Overview, Transactions, Statements, Categories & Rules, Chat), `.env.example`, CI workflow running `make verify` on `dev`/`stage`/`prod`.
+2. **M1 - App skeleton, remaining:** M1b Vite app with the five tabs (Overview, Transactions, Statements, Categories & Rules, Chat); M1c Makefile frontend targets + CI running `make verify` on `dev`/`stage`/`prod`; `.env.example`.
 3. **M2 - Upload and CSV import:** file fingerprint dedupe; bank picker on first upload (defaults: Chase, Discover, Capital One, SoFi, ICICI, HDFC, SBI, Axis, plus "Other"); per-bank currency/date format/account type; CSV import with column mapping saved per bank.
 4. **M3 - PDF statements:** Keychain-backed password per bank, PDF text/table extraction, per-bank profiles for the defaults, LLM-proposed mapping for unknown layouts with user-confirmed preview, reconciliation, transaction-level dedupe.
 5. **M4 - Categorization:** default US and India category sets, rules → stored result → LLM, corrections offered as rules.
