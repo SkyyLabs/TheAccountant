@@ -7,4 +7,4 @@ from app.llm.ollama import OllamaProvider
 def get_llm_provider(settings: Settings) -> LlmProvider:
     if settings.llm_provider == "mock":
         return MockProvider()
-    return OllamaProvider(settings.ollama_url, settings.llm_model)
+    return OllamaProvider(settings.ollama_url, settings.llm_model, settings.embedding_model)

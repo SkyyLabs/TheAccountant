@@ -13,7 +13,15 @@ class LlmUnavailable(LlmError):
 
 
 class LlmProvider(Protocol):
+    # Stored next to each vector, so changing the embedding model re-embeds everything.
+    embedding_model: str
+
     def complete_json(self, system: str, prompt: str, schema: dict) -> dict:
         """Return the model's answer, constrained to the JSON schema, as a dict. The caller
         still validates it: model output is untrusted input."""
+        ...
+
+    def embed(self, texts: list[str], *, query: bool) -> list[list[float]]:
+        """One vector per text. `query` marks a search term; otherwise the texts are the
+        things searched (merchant names)."""
         ...

@@ -539,6 +539,35 @@ def set_merchant_keys(connection: sqlite3.Connection, keys: list[tuple[int, str]
         )
 
 
+def merchant_keys_without_embedding(connection: sqlite3.Connection, model: str) -> list[str]:
+    rows = connection.execute(
+        "SELECT DISTINCT merchant_key FROM transactions"
+        " WHERE merchant_key IS NOT NULL AND merchant_key != ''"
+        " AND merchant_key NOT IN (SELECT merchant_key FROM merchant_embeddings WHERE model = ?)"
+        " ORDER BY merchant_key",
+        (model,),
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
+def add_merchant_embeddings(
+    connection: sqlite3.Connection, model: str, vectors: list[tuple[str, bytes]]
+) -> None:
+    with connection:
+        connection.executemany(
+            "INSERT OR REPLACE INTO merchant_embeddings (merchant_key, model, vector)"
+            " VALUES (?, ?, ?)",
+            [(key, model, vector) for key, vector in vectors],
+        )
+
+
+def merchant_embeddings(connection: sqlite3.Connection, model: str) -> list[tuple[str, bytes]]:
+    rows = connection.execute(
+        "SELECT merchant_key, vector FROM merchant_embeddings WHERE model = ?", (model,)
+    ).fetchall()
+    return [(row[0], row[1]) for row in rows]
+
+
 def stored_category_for_merchant(connection: sqlite3.Connection, merchant_key: str) -> int | None:
     """The category another transaction of this merchant already has, preferring the
     user's own choice, then the most recent. Results still marked for review are ignored."""
