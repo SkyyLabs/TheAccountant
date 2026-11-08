@@ -98,12 +98,13 @@ def categorize(
 
 
 def _ask_llm(connection, provider, rows, keys) -> list[tuple[int, int, str, bool]]:
-    """One question per merchant and direction; the answer applies to all its transactions."""
+    """One question per merchant, direction and account type; the answer applies to all its
+    transactions."""
     categories = {row["name"]: row for row in db.list_categories(connection)}
     uncategorized_id = categories[UNCATEGORIZED]["id"]
     groups: dict[tuple, list] = {}
     for row in rows:
-        group = (keys[row["id"]], row["amount_minor"] < 0, row["country"])
+        group = (keys[row["id"]], row["amount_minor"] < 0, row["country"], row["account_type"])
         groups.setdefault(group, []).append(row)
     items = list(groups.items())
     assignments = []
@@ -123,10 +124,14 @@ def _ask_llm(connection, provider, rows, keys) -> list[tuple[int, int, str, bool
 
 def _ask_batch(provider, batch, allowed: list[str]) -> dict[int, tuple[str, float]]:
     lines = []
-    for index, ((_key, money_out, _country), members) in enumerate(batch):
+    for index, ((_key, money_out, _country, account_type), members) in enumerate(batch):
         example = members[0]
         direction = "money out" if money_out else "money in"
-        lines.append(f'{index}: "{example["description"]}" ({direction}, {example["currency"]})')
+        # Money in on a card is almost always a bill payment; on a bank account it is not.
+        on = "a credit card" if account_type == "credit_card" else "a bank account"
+        lines.append(
+            f'{index}: "{example["description"]}" ({direction} on {on}, {example["currency"]})'
+        )
     prompt = f"Allowed categories: {', '.join(allowed)}\nTransactions:\n" + "\n".join(lines)
     schema = {
         "type": "object",

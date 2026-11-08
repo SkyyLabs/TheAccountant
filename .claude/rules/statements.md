@@ -12,6 +12,7 @@ Applies when touching `backend/app/statements/` - import flow, text extraction, 
   - a date must be a real ISO date within the statement period (31 days slack) when a period is known;
   - a bank name and last 4 digits must appear in the statement, otherwise they are dropped ("Unknown bank", "Account");
   - an opening or closing balance must appear in the statement, otherwise it is ignored.
+  - a running balance printed on a row must equal the previous printed balance (or the opening balance) plus the rows since (a card's balance owed goes up with a charge); the rows that break it are flagged, which catches a flipped sign or a row put on the wrong account. A running balance not printed in the text is ignored.
 - A transaction failing a check is stored with `needs_review = 1`. One without a usable date or amount cannot be stored and is counted in the import's `rejected_count`.
 
 ## Money

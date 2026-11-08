@@ -62,7 +62,7 @@ The LLM is a helping hand in the core of the app, not a last resort (user decisi
 1. In the request: SHA-256 duplicate check (409), and for an encrypted PDF its password (tried with every saved Keychain password first). The file is stored as an import in progress.
 2. In the background: the file becomes text (`statements/pdf.py`: text layer with column gaps kept, Docling + macOS Vision OCR for scans; CSV as is).
 3. The local LLM extracts the accounts (bank, last 4, bank or card, currency, balances, period) and every transaction (date, description, amount, in or out), chunk by chunk (`statements/extract.py`).
-4. Code verifies every answer against the text: amounts must appear in it, dates must fall in the statement period, bank names, account numbers and balances must appear in it, and opening + transactions must equal closing. What fails is kept but flagged (`needs_review`, `unreconciled`), never silently trusted or "fixed".
+4. Code verifies every answer against the text: amounts must appear in it, dates must fall in the statement period, bank names, account numbers and balances must appear in it, each row's running balance must follow from the one before it, and opening + transactions must equal closing. What fails is kept but flagged (`needs_review`, `unreconciled`), never silently trusted or "fixed".
 5. One statement per account found; banks and accounts are created or reused; overlapping statements are de-duplicated by fingerprint.
 6. Categorization: rules, stored results, then the LLM constrained to the category list. The import is done once categorized.
 

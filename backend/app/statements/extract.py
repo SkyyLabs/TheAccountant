@@ -7,7 +7,9 @@ balance, period) and every transaction (date, description, amount, money in or o
 Code then checks each answer against the source text, never trusting it blindly:
 - every amount must be a money value that appears in the text it came from;
 - every date must be a real date inside the statement period (when there is one);
-- balances must appear in the text, and opening + transactions must equal closing.
+- balances must appear in the text, and opening + transactions must equal closing;
+- a running balance printed on a row must follow from the one before it plus that row's
+  amount, which catches a flipped sign or a row put on the wrong account.
 What fails a check is kept but flagged for review (a transaction without a usable date or
 amount cannot be stored and is counted as rejected). Amounts are integer minor units from
 parse_amount, never floats.
@@ -59,6 +61,8 @@ For each transaction:
   debits, charges on a card), "in" for money coming in (deposits, salary, refunds, credits,
   payments received on a card).
 - account_last4: which account it belongs to, from the list given, or null.
+- balance: the running balance printed on that row, copied exactly, or null if the row shows
+  none.
 If the text has no transactions, return an empty list. Answer with JSON only."""
 
 
@@ -78,7 +82,8 @@ class Transaction:
     date: str
     description: str
     amount_minor: int
-    verified: bool  # False: the amount or date did not check out against the text
+    verified: bool  # False: the amount, date or running balance did not check out
+    balance_minor: int | None = None  # running balance printed on the row, if any
 
 
 @dataclass
@@ -183,8 +188,9 @@ def _transactions_schema() -> dict:
             "amount": {"type": "string"},
             "direction": {"enum": ["in", "out"]},
             "account_last4": {"type": ["string", "null"]},
+            "balance": {"type": ["string", "null"]},
         },
-        "required": ["date", "description", "amount", "direction", "account_last4"],
+        "required": ["date", "description", "amount", "direction", "account_last4", "balance"],
     }
     return {
         "type": "object",
@@ -270,7 +276,28 @@ def extract(
         progress(number, len(parts))
     if not extraction.transactions:
         raise NothingFound("no transactions found")
+    _check_running_balances(extraction)
     return extraction
+
+
+def _check_running_balances(extraction: Extraction) -> None:
+    """Each printed running balance must equal the previous one (or the opening balance)
+    plus the rows since. The rows that break it are flagged; the chain carries on from the
+    printed balance, so one bad row does not flag the rest."""
+    for index, account in enumerate(extraction.accounts):
+        # A card's balance is what is owed: a charge (money out) raises it.
+        direction = -1 if account.account_type == "credit_card" else 1
+        previous = account.opening_minor
+        since: list[Transaction] = []
+        for transaction in (t for t in extraction.transactions if t.account_index == index):
+            since.append(transaction)
+            if transaction.balance_minor is None:
+                continue
+            moved = direction * sum(t.amount_minor for t in since)
+            if previous is not None and previous + moved != transaction.balance_minor:
+                for t in since:
+                    t.verified = False
+            previous, since = transaction.balance_minor, []
 
 
 def _add_transactions(extraction: Extraction, items: object, part: str) -> None:
@@ -293,6 +320,8 @@ def _add_transactions(extraction: Extraction, items: object, part: str) -> None:
             extraction.period[0] - PERIOD_SLACK <= when <= extraction.period[1] + PERIOD_SLACK
         )
         description = " ".join(str(item.get("description") or "").split()) or "(no description)"
+        balance = item.get("balance")
+        balance_minor = _amount(balance, account.currency)
         extraction.transactions.append(
             Transaction(
                 account_index=account_index,
@@ -300,5 +329,9 @@ def _add_transactions(extraction: Extraction, items: object, part: str) -> None:
                 description=description,
                 amount_minor=minor if item.get("direction") == "in" else -minor,
                 verified=minor in values and in_period,
+                # Signed as printed; ignored unless printed in this part of the text.
+                balance_minor=parse_amount(str(balance).replace("−", "-"), account.currency)
+                if balance_minor is not None and balance_minor in values
+                else None,
             )
         )
