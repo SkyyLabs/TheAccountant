@@ -1,3 +1,4 @@
+import datetime
 import hashlib
 import re
 import sqlite3
@@ -13,6 +14,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     Request,
     UploadFile,
 )
@@ -27,6 +29,7 @@ from app.llm import get_llm_provider
 from app.statements import csv_import, layout, passwords, pdf
 from app.statements.csv_import import CsvError, CsvMapping
 from app.statements.dates import FORMATS
+from app.statements.money import AmountError, parse_amount
 from app.statements.pdf import PdfError
 from app.statements.reconciliation import find_balance, reconcile
 
@@ -44,6 +47,42 @@ def get_connection(request: Request) -> Iterator[sqlite3.Connection]:
 
 
 Connection = Annotated[sqlite3.Connection, Depends(get_connection)]
+
+
+def _amount_filter(name: str, text: str | None) -> int | None:
+    if text is None or not text.strip():
+        return None
+    try:
+        # Both currencies use two decimals, so either reads the typed amount the same way.
+        return abs(parse_amount(text, "USD"))
+    except AmountError:
+        raise ApiError(422, "invalid_request", f"{name}: not an amount") from None
+
+
+def transaction_filters(
+    date_from: datetime.date | None = None,
+    date_to: datetime.date | None = None,
+    category_ids: Annotated[list[int], Query()] = [],  # noqa: B006 (FastAPI copies it)
+    account_ids: Annotated[list[int], Query()] = [],  # noqa: B006
+    currency: Literal["USD", "INR"] | None = None,
+    amount_min: str | None = None,
+    amount_max: str | None = None,
+    q: str | None = None,
+) -> db.TransactionFilters:
+    """Shared by the transaction list and the summary, so both always agree."""
+    return db.TransactionFilters(
+        date_from=date_from.isoformat() if date_from else None,
+        date_to=date_to.isoformat() if date_to else None,
+        category_ids=category_ids,
+        account_ids=account_ids,
+        currency=currency,
+        amount_min_minor=_amount_filter("amount_min", amount_min),
+        amount_max_minor=_amount_filter("amount_max", amount_max),
+        text=q.strip() if q and q.strip() else None,
+    )
+
+
+Filters = Annotated[db.TransactionFilters, Depends(transaction_filters)]
 
 CURRENCY_BY_COUNTRY = {"US": "USD", "IN": "INR"}
 DEFAULT_DATE_FORMAT_BY_COUNTRY = {"US": "MM/DD/YYYY", "IN": "DD/MM/YYYY"}
@@ -74,6 +113,7 @@ class BankCreate(BaseModel):
 class Account(BaseModel):
     id: int
     bank_id: str
+    bank_name: str
     type: Literal["bank", "credit_card"]
     name: str
 
@@ -139,6 +179,28 @@ class Transaction(BaseModel):
     category_name: str | None
     category_source: Literal["rule", "cache", "llm", "user"] | None
     category_needs_review: bool
+
+
+class CurrencyTotals(BaseModel):
+    currency: Literal["USD", "INR"]
+    money_in_minor: int
+    money_out_minor: int  # a positive total of money out
+    transaction_count: int
+
+
+class MonthTotals(CurrencyTotals):
+    month: str  # YYYY-MM
+
+
+class CategoryTotals(CurrencyTotals):
+    category_id: int | None  # None: not categorized yet
+    category_name: str | None
+
+
+class Summary(BaseModel):
+    totals: list[CurrencyTotals]
+    by_month: list[MonthTotals]
+    by_category: list[CategoryTotals]
 
 
 class TransactionUpdate(BaseModel):
@@ -398,8 +460,17 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
         return Statement(**dict(row))
 
     @app.get("/api/transactions")
-    def list_transactions(connection: Connection) -> list[Transaction]:
-        return [Transaction(**dict(row)) for row in db.list_transactions(connection)]
+    def list_transactions(connection: Connection, filters: Filters) -> list[Transaction]:
+        return [Transaction(**dict(row)) for row in db.list_transactions(connection, filters)]
+
+    @app.get("/api/summary")
+    def summary(connection: Connection, filters: Filters) -> Summary:
+        groups = db.summarize_transactions(connection, filters)
+        return Summary(
+            totals=[CurrencyTotals(**dict(row)) for row in groups["totals"]],
+            by_month=[MonthTotals(**dict(row)) for row in groups["by_month"]],
+            by_category=[CategoryTotals(**dict(row)) for row in groups["by_category"]],
+        )
 
     @app.post("/api/transactions/categorize", status_code=202)
     def categorize_pending(background: BackgroundTasks) -> dict:

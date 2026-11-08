@@ -24,6 +24,7 @@ export type Bank = {
 export type Account = {
   id: number;
   bank_id: string;
+  bank_name: string;
   type: AccountType;
   name: string;
 };
@@ -144,3 +145,17 @@ export type TransactionCorrected = {
 };
 
 export type RuleCreated = { rule: Rule; applied_count: number };
+
+export type CurrencyTotals = {
+  currency: Currency;
+  money_in_minor: number;
+  /** A positive total of money out. */
+  money_out_minor: number;
+  transaction_count: number;
+};
+
+export type Summary = {
+  totals: CurrencyTotals[];
+  by_month: (CurrencyTotals & { month: string })[];
+  by_category: (CurrencyTotals & { category_id: number | null; category_name: string | null })[];
+};

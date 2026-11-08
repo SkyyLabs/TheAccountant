@@ -108,6 +108,12 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - Verified: `make verify` (196 backend, 33 frontend tests, build). UI mutation checks (no rule offer, no check badge, Uncategorized editable) each fail a test. Live smoke on uvicorn with real Ollama and a throwaway database: upload returned `pending`, background categorization finished in about 6 s, `/categories` served.
 - Not verified: visual check in a browser.
 
+### M5a - Transaction filters and totals
+- `db.TransactionFilters` and one WHERE builder shared by `GET /api/transactions` and the new `GET /api/summary` (totals, by month, by category; every row per currency; money in and out as positive totals; uncategorized grouped as `category_id: null`). Amount filters compare the size of the amount, typed text parsed by `parse_amount`; text search escapes `%` and `_`. Accounts list now carries `bank_name`.
+- Transactions tab: filter bar (dates, description, currency, amount range, categories and accounts as checkbox groups, Clear filters) kept in the URL with the backend's parameter names; per-currency totals of the filtered set.
+- Verified: `make verify` (211 backend, 36 frontend tests, build). Mutation checks (signed amount filter, exclusive end date, no LIKE escaping, totals not grouped by currency, summary ignoring filters, typed sign kept, only first category in the URL, totals ignoring filters) each fail a test; "typed sign kept" survived at first and a negative-amount test was added.
+- Not done: the list has no paging (fine at personal scale); text inputs fetch on every keystroke.
+
 ---
 
 ## Architecture decisions
