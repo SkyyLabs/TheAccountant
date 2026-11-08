@@ -119,6 +119,7 @@ _STATEMENT_COLUMNS = (
     " statement_files.filename, statements.currency, period_start, period_end,"
     " reconciliation_status, opening_balance_minor, closing_balance_minor,"
     " reconciliation_difference_minor, row_count, imported_count, duplicate_count,"
+    " categorization_status,"
     " statement_files.uploaded_at"
     " FROM statements"
     " JOIN statement_files ON statement_files.id = statements.file_id"
@@ -223,13 +224,217 @@ def create_statement(
     return statement_id
 
 
+_TRANSACTION_COLUMNS = (
+    "SELECT transactions.id, transactions.statement_id, transactions.account_id,"
+    " accounts.name AS account_name, accounts.bank_id, banks.name AS bank_name,"
+    " transactions.date, transactions.amount_minor, transactions.currency,"
+    " transactions.description, transactions.merchant_key, transactions.needs_review,"
+    " categories.id AS category_id, categories.name AS category_name,"
+    " category_assignments.source AS category_source,"
+    " coalesce(category_assignments.needs_review, 0) AS category_needs_review"
+    " FROM transactions JOIN accounts ON accounts.id = transactions.account_id"
+    " JOIN banks ON banks.id = accounts.bank_id"
+    # The latest assignment wins; earlier ones stay for audit.
+    " LEFT JOIN category_assignments ON category_assignments.id = ("
+    "   SELECT max(id) FROM category_assignments"
+    "   WHERE category_assignments.transaction_id = transactions.id)"
+    " LEFT JOIN categories ON categories.id = category_assignments.category_id"
+)
+
+
 def list_transactions(connection: sqlite3.Connection) -> list[sqlite3.Row]:
     return connection.execute(
-        "SELECT transactions.id, transactions.statement_id, transactions.account_id,"
-        " accounts.name AS account_name, accounts.bank_id, banks.name AS bank_name,"
-        " transactions.date, transactions.amount_minor, transactions.currency,"
-        " transactions.description, transactions.needs_review"
+        _TRANSACTION_COLUMNS + " ORDER BY transactions.date DESC, transactions.id DESC"
+    ).fetchall()
+
+
+def get_transaction(connection: sqlite3.Connection, transaction_id: int) -> sqlite3.Row | None:
+    return connection.execute(
+        _TRANSACTION_COLUMNS + " WHERE transactions.id = ?", (transaction_id,)
+    ).fetchone()
+
+
+def uncategorized_transactions(
+    connection: sqlite3.Connection, statement_id: int | None = None
+) -> list[sqlite3.Row]:
+    """Transactions with no category assignment yet, with their bank's country."""
+    query = (
+        "SELECT transactions.id, transactions.statement_id, transactions.description,"
+        " transactions.amount_minor, transactions.currency, banks.country"
         " FROM transactions JOIN accounts ON accounts.id = transactions.account_id"
         " JOIN banks ON banks.id = accounts.bank_id"
-        " ORDER BY transactions.date DESC, transactions.id DESC"
+        " WHERE NOT EXISTS (SELECT 1 FROM category_assignments"
+        "   WHERE category_assignments.transaction_id = transactions.id)"
+    )
+    params: tuple = ()
+    if statement_id is not None:
+        query += " AND transactions.statement_id = ?"
+        params = (statement_id,)
+    return connection.execute(query + " ORDER BY transactions.id", params).fetchall()
+
+
+def set_merchant_keys(connection: sqlite3.Connection, keys: list[tuple[int, str]]) -> None:
+    with connection:
+        connection.executemany(
+            "UPDATE transactions SET merchant_key = ? WHERE id = ?",
+            [(key, transaction_id) for transaction_id, key in keys],
+        )
+
+
+def stored_category_for_merchant(connection: sqlite3.Connection, merchant_key: str) -> int | None:
+    """The category another transaction of this merchant already has, preferring the
+    user's own choice, then the most recent. Results still marked for review are ignored."""
+    row = connection.execute(
+        "SELECT category_assignments.category_id FROM transactions"
+        " JOIN category_assignments ON category_assignments.id = ("
+        "   SELECT max(id) FROM category_assignments"
+        "   WHERE category_assignments.transaction_id = transactions.id)"
+        " WHERE transactions.merchant_key = ? AND category_assignments.needs_review = 0"
+        " ORDER BY category_assignments.source = 'user' DESC, category_assignments.id DESC"
+        " LIMIT 1",
+        (merchant_key,),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def add_category_assignments(
+    connection: sqlite3.Connection, assignments: list[tuple[int, int, str, bool]]
+) -> None:
+    """Each item: (transaction_id, category_id, source, needs_review)."""
+    with connection:
+        connection.executemany(
+            "INSERT INTO category_assignments (transaction_id, category_id, source, needs_review)"
+            " VALUES (?, ?, ?, ?)",
+            [(t, c, source, int(review)) for t, c, source, review in assignments],
+        )
+
+
+def set_categorization_status(
+    connection: sqlite3.Connection, statement_ids: list[int], status: str
+) -> None:
+    with connection:
+        connection.executemany(
+            "UPDATE statements SET categorization_status = ? WHERE id = ?",
+            [(status, statement_id) for statement_id in statement_ids],
+        )
+
+
+def transactions_not_set_by_user(connection: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Transactions a new rule may recategorize: never those the user set by hand."""
+    return connection.execute(
+        "SELECT transactions.id, transactions.merchant_key, transactions.amount_minor,"
+        " category_assignments.category_id"
+        " FROM transactions LEFT JOIN category_assignments ON category_assignments.id = ("
+        "   SELECT max(id) FROM category_assignments"
+        "   WHERE category_assignments.transaction_id = transactions.id)"
+        " WHERE transactions.merchant_key IS NOT NULL"
+        " AND coalesce(category_assignments.source, '') != 'user'"
     ).fetchall()
+
+
+def list_categories(connection: sqlite3.Connection) -> list[sqlite3.Row]:
+    return connection.execute(
+        "SELECT id, name, region, is_default FROM categories ORDER BY name = 'Uncategorized', name"
+    ).fetchall()
+
+
+def get_category(connection: sqlite3.Connection, category_id: int) -> sqlite3.Row | None:
+    return connection.execute(
+        "SELECT id, name, region, is_default FROM categories WHERE id = ?", (category_id,)
+    ).fetchone()
+
+
+def category_id_by_name(connection: sqlite3.Connection, name: str) -> int | None:
+    row = connection.execute("SELECT id FROM categories WHERE name = ?", (name,)).fetchone()
+    return row[0] if row else None
+
+
+def create_category(connection: sqlite3.Connection, name: str, region: str) -> sqlite3.Row:
+    """Raises sqlite3.IntegrityError if the name exists."""
+    with connection:
+        category_id = connection.execute(
+            "INSERT INTO categories (name, region) VALUES (?, ?)", (name, region)
+        ).lastrowid
+    return get_category(connection, category_id)
+
+
+def rename_category(connection: sqlite3.Connection, category_id: int, name: str) -> None:
+    """Raises sqlite3.IntegrityError if the name exists."""
+    with connection:
+        connection.execute("UPDATE categories SET name = ? WHERE id = ?", (name, category_id))
+
+
+def category_in_use(connection: sqlite3.Connection, category_id: int) -> bool:
+    return (
+        connection.execute(
+            "SELECT 1 FROM category_assignments WHERE category_id = ?"
+            " UNION ALL SELECT 1 FROM rules WHERE category_id = ? LIMIT 1",
+            (category_id, category_id),
+        ).fetchone()
+        is not None
+    )
+
+
+def delete_category(connection: sqlite3.Connection, category_id: int) -> None:
+    with connection:
+        connection.execute("DELETE FROM categories WHERE id = ?", (category_id,))
+
+
+_RULE_COLUMNS = (
+    "SELECT rules.id, match_type, pattern, amount_min_minor, amount_max_minor, category_id,"
+    " categories.name AS category_name, priority"
+    " FROM rules JOIN categories ON categories.id = rules.category_id"
+)
+
+
+def list_rules(connection: sqlite3.Connection) -> list[sqlite3.Row]:
+    """In the order they are tried: highest priority first, then oldest."""
+    return connection.execute(_RULE_COLUMNS + " ORDER BY priority DESC, rules.id").fetchall()
+
+
+def get_rule(connection: sqlite3.Connection, rule_id: int) -> sqlite3.Row | None:
+    return connection.execute(_RULE_COLUMNS + " WHERE rules.id = ?", (rule_id,)).fetchone()
+
+
+def create_rule(
+    connection: sqlite3.Connection,
+    *,
+    match_type: str,
+    pattern: str,
+    amount_min_minor: int | None,
+    amount_max_minor: int | None,
+    category_id: int,
+    priority: int,
+) -> sqlite3.Row:
+    with connection:
+        rule_id = connection.execute(
+            "INSERT INTO rules (match_type, pattern, amount_min_minor, amount_max_minor,"
+            " category_id, priority) VALUES (?, ?, ?, ?, ?, ?)",
+            (match_type, pattern, amount_min_minor, amount_max_minor, category_id, priority),
+        ).lastrowid
+    return get_rule(connection, rule_id)
+
+
+def update_rule(connection: sqlite3.Connection, rule_id: int, changes: dict) -> None:
+    # Column names come only from this fixed set, never from the request.
+    allowed = (
+        "match_type",
+        "pattern",
+        "amount_min_minor",
+        "amount_max_minor",
+        "category_id",
+        "priority",
+    )
+    columns = [column for column in allowed if column in changes]
+    if not columns:
+        return
+    with connection:
+        connection.execute(
+            f"UPDATE rules SET {', '.join(f'{c} = ?' for c in columns)} WHERE id = ?",
+            (*[changes[c] for c in columns], rule_id),
+        )
+
+
+def delete_rule(connection: sqlite3.Connection, rule_id: int) -> None:
+    with connection:
+        connection.execute("DELETE FROM rules WHERE id = ?", (rule_id,))

@@ -22,9 +22,13 @@ The LLM **never** produces an amount, a date, a balance or a total that the user
 
 ## Categorization
 
-1. User rules (exact or contains-match on normalized merchant, optional amount range) - no LLM call.
-2. Stored result for the same normalized merchant - no LLM call.
-3. LLM, batched (many transactions per call), constrained to the category enum. Low-confidence or invalid output → `Uncategorized` + `needs_review`.
+Implemented in `backend/app/categorize/categorizer.py`; runs as a background task after each upload, and again via `POST /api/transactions/categorize`.
+
+1. User rules (exact or contains-match on the merchant key, optional signed amount range; highest priority first) - no LLM call.
+2. Stored result for the same merchant key (the user's own choice first, then the latest; results still needing review are ignored) - no LLM call.
+3. LLM, one question per merchant and direction, batches of 20, constrained to the category enum for the bank's region (`both` plus `US` or `IN`). Confidence below 0.6, `Uncategorized`, or an invalid answer after one retry → `Uncategorized` + `needs_review`. Ollama down → nothing assigned, statement `categorization_status = llm_unavailable`, retried later.
+
+The merchant key is the description lower-cased without punctuation or words containing digits (reference numbers).
 
 A user correction is stored as a new row (the original LLM result stays for audit) and the UI offers "always categorize X as Y" as a rule.
 

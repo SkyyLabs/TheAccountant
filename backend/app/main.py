@@ -6,11 +6,21 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app import __version__, db
+from app.categorize import categorizer
 from app.config import REPO_ROOT, Settings
 from app.errors import ApiError, error_response, install_error_handlers
 from app.llm import get_llm_provider
@@ -92,6 +102,7 @@ class Statement(BaseModel):
     row_count: int
     imported_count: int
     duplicate_count: int
+    categorization_status: Literal["pending", "done", "llm_unavailable"]
     uploaded_at: str
 
 
@@ -124,6 +135,77 @@ class Transaction(BaseModel):
     currency: Literal["USD", "INR"]
     description: str
     needs_review: bool
+    category_id: int | None
+    category_name: str | None
+    category_source: Literal["rule", "cache", "llm", "user"] | None
+    category_needs_review: bool
+
+
+class TransactionUpdate(BaseModel):
+    category_id: int
+
+
+class RuleSuggestion(BaseModel):
+    match_type: Literal["exact", "contains"]
+    pattern: str
+    category_id: int
+
+
+class TransactionCorrected(BaseModel):
+    transaction: Transaction
+    # Offered to the user as "always categorize X as Y"; created only if they accept.
+    suggested_rule: RuleSuggestion | None
+
+
+class Category(BaseModel):
+    id: int
+    name: str
+    region: Literal["US", "IN", "both"]
+    is_default: bool
+
+
+class CategoryCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    region: Literal["US", "IN", "both"] = "both"
+
+
+class CategoryUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+
+class Rule(BaseModel):
+    id: int
+    match_type: Literal["exact", "contains"]
+    pattern: str
+    amount_min_minor: int | None
+    amount_max_minor: int | None
+    category_id: int
+    category_name: str
+    priority: int
+
+
+class RuleCreate(BaseModel):
+    match_type: Literal["exact", "contains"]
+    pattern: str = Field(min_length=1, max_length=200)
+    amount_min_minor: int | None = None
+    amount_max_minor: int | None = None
+    category_id: int
+    priority: int = 0
+
+
+class RuleUpdate(BaseModel):
+    match_type: Literal["exact", "contains"] | None = None
+    pattern: str | None = Field(default=None, min_length=1, max_length=200)
+    amount_min_minor: int | None = None
+    amount_max_minor: int | None = None
+    category_id: int | None = None
+    priority: int | None = None
+
+
+class RuleCreated(BaseModel):
+    rule: Rule
+    # Existing transactions (never ones the user set by hand) moved to the rule's category.
+    applied_count: int
 
 
 PREVIEW_TRANSACTIONS = 20
@@ -240,6 +322,7 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
     @app.post("/api/statements", status_code=201)
     def upload_statement(
         connection: Connection,
+        background: BackgroundTasks,
         file: Annotated[UploadFile, File()],
         account_id: Annotated[int, Form()],
         mapping: Annotated[str | None, Form()] = None,
@@ -299,6 +382,8 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
         if mapping is not None:
             # Saved only after the import succeeded with it: the user confirmed the preview.
             db.save_account_csv_mapping(connection, account_id, used.model_dump_json())
+        # Categorizing can take a while with the LLM; the UI polls categorization_status.
+        background.add_task(run_categorization, statement_id)
         return Statement(**dict(db.get_statement(connection, statement_id)))
 
     @app.get("/api/statements")
@@ -315,6 +400,128 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
     @app.get("/api/transactions")
     def list_transactions(connection: Connection) -> list[Transaction]:
         return [Transaction(**dict(row)) for row in db.list_transactions(connection)]
+
+    @app.post("/api/transactions/categorize", status_code=202)
+    def categorize_pending(background: BackgroundTasks) -> dict:
+        """Retry transactions left uncategorized, e.g. after Ollama was not running."""
+        background.add_task(run_categorization, None)
+        return {"status": "started"}
+
+    @app.patch("/api/transactions/{transaction_id}")
+    def correct_category(
+        transaction_id: int, body: TransactionUpdate, connection: Connection
+    ) -> TransactionCorrected:
+        transaction = db.get_transaction(connection, transaction_id)
+        if transaction is None:
+            raise ApiError(404, "transaction_not_found", f"no transaction {transaction_id}")
+        require_category(connection, body.category_id)
+        db.add_category_assignments(connection, [(transaction_id, body.category_id, "user", False)])
+        key = transaction["merchant_key"]
+        suggestion = None
+        if key:
+            suggestion = RuleSuggestion(
+                match_type="exact", pattern=key, category_id=body.category_id
+            )
+        return TransactionCorrected(
+            transaction=Transaction(**dict(db.get_transaction(connection, transaction_id))),
+            suggested_rule=suggestion,
+        )
+
+    @app.get("/api/categories")
+    def list_categories(connection: Connection) -> list[Category]:
+        return [Category(**dict(row)) for row in db.list_categories(connection)]
+
+    @app.post("/api/categories", status_code=201)
+    def create_category(body: CategoryCreate, connection: Connection) -> Category:
+        name = body.name.strip()
+        try:
+            return Category(**dict(db.create_category(connection, name, body.region)))
+        except sqlite3.IntegrityError:
+            raise ApiError(409, "category_exists", f"a category named {name!r} exists") from None
+
+    @app.patch("/api/categories/{category_id}")
+    def rename_category(category_id: int, body: CategoryUpdate, connection: Connection) -> Category:
+        category = require_category(connection, category_id)
+        if category["name"] == categorizer.UNCATEGORIZED:
+            raise ApiError(409, "category_protected", "Uncategorized cannot be renamed")
+        name = body.name.strip()
+        try:
+            db.rename_category(connection, category_id, name)
+        except sqlite3.IntegrityError:
+            raise ApiError(409, "category_exists", f"a category named {name!r} exists") from None
+        return Category(**dict(db.get_category(connection, category_id)))
+
+    @app.delete("/api/categories/{category_id}", status_code=204)
+    def delete_category(category_id: int, connection: Connection) -> None:
+        category = require_category(connection, category_id)
+        if category["name"] == categorizer.UNCATEGORIZED:
+            raise ApiError(409, "category_protected", "Uncategorized cannot be deleted")
+        if db.category_in_use(connection, category_id):
+            raise ApiError(
+                409, "category_in_use", "move its transactions and rules to another category first"
+            )
+        db.delete_category(connection, category_id)
+
+    @app.get("/api/rules")
+    def list_rules(connection: Connection) -> list[Rule]:
+        return [Rule(**dict(row)) for row in db.list_rules(connection)]
+
+    @app.post("/api/rules", status_code=201)
+    def create_rule(body: RuleCreate, connection: Connection) -> RuleCreated:
+        require_category(connection, body.category_id)
+        pattern = categorizer.merchant_key(body.pattern)
+        if not pattern:
+            raise ApiError(422, "invalid_request", "pattern: must contain a letter")
+        rule = db.create_rule(
+            connection,
+            match_type=body.match_type,
+            pattern=pattern,
+            amount_min_minor=body.amount_min_minor,
+            amount_max_minor=body.amount_max_minor,
+            category_id=body.category_id,
+            priority=body.priority,
+        )
+        # Apply to what is already imported, so the rule takes effect where the user sees it.
+        moved = [
+            (row["id"], rule["category_id"], "rule", False)
+            for row in db.transactions_not_set_by_user(connection)
+            if row["category_id"] != rule["category_id"]
+            and categorizer.rule_matches(rule, row["merchant_key"], row["amount_minor"])
+        ]
+        db.add_category_assignments(connection, moved)
+        return RuleCreated(rule=Rule(**dict(rule)), applied_count=len(moved))
+
+    @app.patch("/api/rules/{rule_id}")
+    def update_rule(rule_id: int, body: RuleUpdate, connection: Connection) -> Rule:
+        if db.get_rule(connection, rule_id) is None:
+            raise ApiError(404, "rule_not_found", f"no rule with id {rule_id}")
+        changes = body.model_dump(exclude_unset=True)
+        if "category_id" in changes:
+            require_category(connection, changes["category_id"])
+        if "pattern" in changes:
+            changes["pattern"] = categorizer.merchant_key(changes["pattern"])
+        db.update_rule(connection, rule_id, changes)
+        return Rule(**dict(db.get_rule(connection, rule_id)))
+
+    @app.delete("/api/rules/{rule_id}", status_code=204)
+    def delete_rule(rule_id: int, connection: Connection) -> None:
+        if db.get_rule(connection, rule_id) is None:
+            raise ApiError(404, "rule_not_found", f"no rule with id {rule_id}")
+        db.delete_rule(connection, rule_id)
+
+    def run_categorization(statement_id: int | None) -> None:
+        # A background task outlives the request, so it opens its own connection.
+        connection = db.connect(settings.database_path)
+        try:
+            categorizer.categorize(connection, app.state.llm, statement_id)
+        finally:
+            connection.close()
+
+    def require_category(connection: sqlite3.Connection, category_id: int) -> sqlite3.Row:
+        category = db.get_category(connection, category_id)
+        if category is None:
+            raise ApiError(404, "category_not_found", f"no category with id {category_id}")
+        return category
 
     def read_upload(file: UploadFile) -> bytes:
         # The middleware rejects large requests by Content-Length; this catches chunked ones.

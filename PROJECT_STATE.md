@@ -95,6 +95,13 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - Found while testing the real model: alone it proposed `DD/MM/YYYY` for Chase dates, was off by one on header lines and usually returned no balance labels. Validation rejected those answers, which is why code now settles those fields.
 - Known gaps: a card file with as many credits as charges keeps the proposed sign (the majority rule cannot decide); Indian card statements with a `Cr` closing balance (credit balance) would read as owed; layout proposal runs inside the upload request (a few seconds to tens of seconds on first upload).
 
+### M4a - Categorization backend
+- Migration `0004`: `categories` (24 defaults: 22 for both regions, `Mobile and DTH Recharge` and `Domestic Help` for India), `category_assignments` (new row per decision, latest wins), `rules`, `transactions.merchant_key`, `statements.categorization_status`.
+- `categorize/categorizer.py`: rules, then stored result per merchant key, then the LLM in batches constrained to the region's categories; low confidence or invalid output becomes `Uncategorized` + needs review; Ollama down leaves transactions pending. Runs in a background task after upload; `POST /api/transactions/categorize` retries.
+- API: categories (list, create, rename, delete; `Uncategorized` protected; in-use categories cannot be deleted), rules (list by priority, create with retroactive apply that never overrides the user's own choices, update, delete), `PATCH /api/transactions/{id}` (user correction, returns a suggested exact rule). Transactions carry category, source and review flag.
+- Verified: `make verify` (default suite). Mutation checks (rules skipped, stored results skipped, confidence ignored, category list not enforced, region ignored, unavailable reported as done, amount minimum ignored, rules override user, earliest assignment wins, correction not marked user) each fail a test; "stored results skipped" survived at first and the test was rewritten. Real `qwen2.5:7b` on 14 synthetic US and Indian transactions: 12 sensible, 2 flagged for review (gibberish merchant, card payment), 16 s.
+- Not done: no read of the assignment history (audit rows are stored but not exposed yet).
+
 ---
 
 ## Architecture decisions
@@ -128,15 +135,13 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 
 ## Next tasks
 
-
+- **Accuracy review of financial readings (user request, 2026-11-08, after M4):** measure how accurate extraction, layout proposals and reconciliation are, and decide how to handle the gaps listed under M3b and M3c (wrapped descriptions, card sign ties, `Cr` card balances, layout proposal latency). Synthetic test layouts only so far; real-statement checks need the user.
 - **When development is done (user request, 2026-11-08):** add a Read deny rule for real statements back to `.claude/settings.json`. It was removed because `Read(./statements/**)` also matched `backend/app/statements/` and blocked the parser code. Re-add it in a form that only covers a root-level folder and confirm `backend/app/statements/` stays readable.
 
-1. **M2 - Upload and CSV import:** file fingerprint dedupe; bank picker on first upload (defaults: Chase, Discover, Capital One, SoFi, ICICI, HDFC, SBI, Axis, plus "Other"); per-bank currency/date format/account type; CSV import with column mapping saved per bank.
-2. **M3 - PDF statements:** Keychain-backed password per bank, PDF text/table extraction, per-bank profiles for the defaults, LLM-proposed mapping for unknown layouts with user-confirmed preview, reconciliation, transaction-level dedupe.
-3. **M4 - Categorization:** default US and India category sets, rules → stored result → LLM, corrections offered as rules.
-4. **M5 - Transactions and Overview:** filters (date range, category, amount range, account, currency), editable categories, charts by month and category.
-5. **M6 - Chat:** fixed query tools over transactions; answers cite the filters used.
-6. **M7 - Scanned statements and receipt photos:** OCR (Docling) or `llama3.2-vision`.
+1. **M4 - Categorization:** default US and India category sets, rules -> stored result -> LLM, corrections offered as rules.
+2. **M5 - Transactions and Overview:** filters (date range, category, amount range, account, currency), editable categories, charts by month and category.
+3. **M6 - Chat:** fixed query tools over transactions; answers cite the filters used.
+4. **M7 - Receipt photos:** `llama3.2-vision` (scanned statements are already handled by Docling + Vision OCR in M3b).
 
 ## Future work
 
