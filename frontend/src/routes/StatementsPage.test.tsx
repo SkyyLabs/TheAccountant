@@ -65,7 +65,7 @@ async function chooseChaseAccountAndFile() {
   fireEvent.change(await screen.findByLabelText("Bank"), { target: { value: "chase" } });
   await screen.findByRole("option", { name: "Freedom 1234 (card)" });
   const file = new File(["Transaction Date,Description,Amount\n"], "march.csv", { type: "text/csv" });
-  fireEvent.change(screen.getByLabelText("Statement file (CSV)"), { target: { files: [file] } });
+  fireEvent.change(screen.getByLabelText("Statement file (CSV or PDF)"), { target: { files: [file] } });
   fireEvent.click(screen.getByRole("button", { name: "Upload" }));
 }
 
@@ -195,4 +195,90 @@ test("an other bank is created with its country", async () => {
     name: "Kotak",
     country: "IN",
   });
+});
+
+
+const PASSWORD_REQUIRED = {
+  status: 422,
+  body: { error: { code: "pdf_password_required", message: "this PDF needs a password" } },
+};
+
+test("an encrypted PDF asks for the password and remembers it by default", async () => {
+  const { sent } = fakeApi({
+    "GET /api/banks": { body: [CHASE] },
+    "GET /api/statements": { body: [] },
+    "GET /api/accounts": ACCOUNTS,
+    "POST /api/statements": () =>
+      sent("POST", "/api/statements").length === 1 ? PASSWORD_REQUIRED : MAPPING_REQUIRED,
+  });
+  render(<StatementsPage />);
+  await chooseChaseAccountAndFile();
+
+  fireEvent.change(await screen.findByLabelText("PDF password"), { target: { value: "s3cret" } });
+  fireEvent.click(screen.getByRole("button", { name: "Unlock and upload" }));
+
+  expect(await screen.findByLabelText("Amount column")).toBeInTheDocument();
+  const form = sent("POST", "/api/statements")[1].body as FormData;
+  expect(form.get("password")).toBe("s3cret");
+  expect(form.get("remember")).toBe("true");
+});
+
+test("the password is not remembered when the box is unticked", async () => {
+  const { sent } = fakeApi({
+    "GET /api/banks": { body: [CHASE] },
+    "GET /api/statements": { body: [] },
+    "GET /api/accounts": ACCOUNTS,
+    "POST /api/statements": () =>
+      sent("POST", "/api/statements").length === 1 ? PASSWORD_REQUIRED : MAPPING_REQUIRED,
+  });
+  render(<StatementsPage />);
+  await chooseChaseAccountAndFile();
+
+  fireEvent.change(await screen.findByLabelText("PDF password"), { target: { value: "s3cret" } });
+  fireEvent.click(screen.getByLabelText("Remember for this bank (macOS Keychain)"));
+  fireEvent.click(screen.getByRole("button", { name: "Unlock and upload" }));
+
+  await screen.findByLabelText("Amount column");
+  const form = sent("POST", "/api/statements")[1].body as FormData;
+  expect(form.get("remember")).toBe("false");
+});
+
+test("a wrong password says so and asks again", async () => {
+  fakeApi({
+    "GET /api/banks": { body: [CHASE] },
+    "GET /api/statements": { body: [] },
+    "GET /api/accounts": ACCOUNTS,
+    "POST /api/statements": {
+      status: 422,
+      body: { error: { code: "pdf_password_invalid", message: "the PDF password is wrong" } },
+    },
+  });
+  render(<StatementsPage />);
+
+  await chooseChaseAccountAndFile();
+
+  expect(await screen.findByText("That password did not open the PDF. Try again.")).toBeInTheDocument();
+  expect(screen.getByLabelText("PDF password")).toHaveValue("");
+});
+
+test("preview sends the password but never asks to remember it", async () => {
+  const { sent } = fakeApi({
+    "GET /api/banks": { body: [CHASE] },
+    "GET /api/statements": { body: [] },
+    "GET /api/accounts": ACCOUNTS,
+    "POST /api/statements": () =>
+      sent("POST", "/api/statements").length === 1 ? PASSWORD_REQUIRED : MAPPING_REQUIRED,
+    "POST /api/statements/preview": { body: { row_count: 0, skipped_row_count: 0, transactions: [] } },
+  });
+  render(<StatementsPage />);
+  await chooseChaseAccountAndFile();
+  fireEvent.change(await screen.findByLabelText("PDF password"), { target: { value: "s3cret" } });
+  fireEvent.click(screen.getByRole("button", { name: "Unlock and upload" }));
+
+  fireEvent.click(await screen.findByRole("button", { name: "Preview" }));
+
+  await waitFor(() => expect(sent("POST", "/api/statements/preview")).toHaveLength(1));
+  const form = sent("POST", "/api/statements/preview")[0].body as FormData;
+  expect(form.get("password")).toBe("s3cret");
+  expect(form.get("remember")).toBe("false");
 });

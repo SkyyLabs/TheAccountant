@@ -13,9 +13,10 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from app import __version__, db
 from app.config import REPO_ROOT, Settings
 from app.errors import ApiError, error_response, install_error_handlers
-from app.statements import csv_import
+from app.statements import csv_import, passwords, pdf
 from app.statements.csv_import import CsvError, CsvMapping
 from app.statements.dates import FORMATS
+from app.statements.pdf import PdfError
 
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
@@ -200,9 +201,10 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
         file: Annotated[UploadFile, File()],
         account_id: Annotated[int, Form()],
         mapping: Annotated[str, Form()],
+        password: Annotated[str | None, Form()] = None,
     ) -> StatementPreview:
         account = require_account(connection, account_id)
-        rows = read_csv_upload(file)
+        rows = statement_rows(read_upload(file), account, password)
         parsed, skipped = apply_mapping_or_422(rows, parse_mapping(mapping), account["currency"])
         return StatementPreview(
             row_count=len(parsed),
@@ -224,6 +226,8 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
         file: Annotated[UploadFile, File()],
         account_id: Annotated[int, Form()],
         mapping: Annotated[str | None, Form()] = None,
+        password: Annotated[str | None, Form()] = None,
+        remember: Annotated[bool, Form()] = True,
     ) -> Statement:
         data = read_upload(file)
         sha256 = hashlib.sha256(data).hexdigest()
@@ -236,7 +240,11 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
                 {"statement_id": existing_id},
             )
         account = require_account(connection, account_id)
-        rows = csv_rows(data)
+        rows = statement_rows(data, account, password)
+        if password and remember:
+            # Only reached once the password opened the file, so a wrong one never
+            # replaces the saved one.
+            passwords.save_password(account["bank_id"], password)
         if mapping is not None:
             confirmed = parse_mapping(mapping)
             parsed, _ = apply_mapping_or_422(rows, confirmed, account["currency"])
@@ -257,8 +265,8 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
         statement_id = db.create_statement(
             connection,
             sha256=sha256,
-            filename=file.filename or "statement.csv",
-            mime=file.content_type or "text/csv",
+            filename=file.filename or "statement",
+            mime="application/pdf" if pdf.is_pdf(data) else "text/csv",
             file_bytes=data,
             account_id=account_id,
             currency=account["currency"],
@@ -297,16 +305,23 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
             )
         return data
 
-    def csv_rows(data: bytes) -> list[list[str]]:
-        if data.startswith(b"%PDF"):
-            raise ApiError(415, "unsupported_file_type", "PDF statements are not supported yet")
+    def statement_rows(data: bytes, account: sqlite3.Row, password: str | None) -> list[list[str]]:
+        if not pdf.is_pdf(data):
+            try:
+                return csv_import.read_rows(data)
+            except CsvError as error:
+                raise ApiError(422, error.code, str(error)) from None
+        attempt = password or passwords.get_password(account["bank_id"])
         try:
-            return csv_import.read_rows(data)
-        except CsvError as error:
+            return pdf.read_rows(data, attempt)
+        except PdfError as error:
+            if error.code == "pdf_password_invalid" and not password:
+                raise ApiError(
+                    422,
+                    "pdf_password_required",
+                    "the saved password for this bank did not open this PDF",
+                ) from None
             raise ApiError(422, error.code, str(error)) from None
-
-    def read_csv_upload(file: UploadFile) -> list[list[str]]:
-        return csv_rows(read_upload(file))
 
     def require_account(connection: sqlite3.Connection, account_id: int) -> sqlite3.Row:
         account = db.get_account(connection, account_id)

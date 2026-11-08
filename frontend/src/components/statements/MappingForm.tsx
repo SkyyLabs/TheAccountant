@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import { ApiError, api } from "../../lib/api";
+import { ApiError, api, type StatementUnlock } from "../../lib/api";
 import { formatMoney } from "../../lib/format";
 import type {
   AmountMode,
@@ -49,11 +49,12 @@ type Props = {
   file: File;
   accountId: number;
   details: MappingRequiredDetails;
+  unlock?: StatementUnlock;
   onImported: (statement: Statement) => void;
   onCancel: () => void;
 };
 
-export function MappingForm({ file, accountId, details, onImported, onCancel }: Props) {
+export function MappingForm({ file, accountId, details, unlock, onImported, onCancel }: Props) {
   const suggestion = details.suggested_mapping;
   const [draft, setDraft] = useState<Draft>({
     header_row: suggestion.header_row ?? 0,
@@ -85,7 +86,7 @@ export function MappingForm({ file, accountId, details, onImported, onCancel }: 
     setBusy(true);
     setError(null);
     try {
-      setPreview(await api.previewStatement(file, accountId, mapping));
+      setPreview(await api.previewStatement(file, accountId, mapping, unlock));
       setPreviewedMapping(JSON.stringify(mapping));
     } catch (caught) {
       setPreview(null);
@@ -101,7 +102,7 @@ export function MappingForm({ file, accountId, details, onImported, onCancel }: 
     setBusy(true);
     setError(null);
     try {
-      onImported(await api.uploadStatement(file, accountId, mapping));
+      onImported(await api.uploadStatement(file, accountId, mapping, unlock));
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : "Import failed");
     } finally {

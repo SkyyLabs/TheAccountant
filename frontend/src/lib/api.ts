@@ -45,11 +45,22 @@ function postJson<T>(path: string, body: unknown): Promise<T> {
   });
 }
 
-function statementForm(file: File, accountId: number, mapping?: CsvMapping): FormData {
+export type StatementUnlock = { password: string; remember: boolean };
+
+function statementForm(
+  file: File,
+  accountId: number,
+  mapping?: CsvMapping,
+  unlock?: StatementUnlock,
+): FormData {
   const form = new FormData();
   form.append("file", file);
   form.append("account_id", String(accountId));
   if (mapping) form.append("mapping", JSON.stringify(mapping));
+  if (unlock) {
+    form.append("password", unlock.password);
+    form.append("remember", String(unlock.remember));
+  }
   return form;
 }
 
@@ -62,15 +73,26 @@ export const api = {
   createAccount: (bankId: string, type: AccountType, name: string) =>
     postJson<Account>("/accounts", { bank_id: bankId, type, name }),
   listStatements: () => request<Statement[]>("/statements"),
-  uploadStatement: (file: File, accountId: number, mapping?: CsvMapping) =>
+  uploadStatement: (
+    file: File,
+    accountId: number,
+    mapping?: CsvMapping,
+    unlock?: StatementUnlock,
+  ) =>
     request<Statement>("/statements", {
       method: "POST",
-      body: statementForm(file, accountId, mapping),
+      body: statementForm(file, accountId, mapping, unlock),
     }),
-  previewStatement: (file: File, accountId: number, mapping: CsvMapping) =>
+  previewStatement: (
+    file: File,
+    accountId: number,
+    mapping: CsvMapping,
+    unlock?: StatementUnlock,
+  ) =>
     request<StatementPreview>("/statements/preview", {
       method: "POST",
-      body: statementForm(file, accountId, mapping),
+      // Preview never saves the password; only a successful upload does.
+      body: statementForm(file, accountId, mapping, unlock && { ...unlock, remember: false }),
     }),
   listTransactions: () => request<Transaction[]>("/transactions"),
 };

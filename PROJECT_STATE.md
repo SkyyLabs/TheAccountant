@@ -69,6 +69,14 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - Verified: `make verify` (124 backend tests; frontend typecheck, lint, 16 tests, build). UI mutation checks (import without a fresh preview, INR grouping, duplicate message, status hint) each fail a test. Live smoke test on a throwaway database: mapping suggestion, import, 409 on re-upload, transactions listed, `/statements` served, listener on 127.0.0.1 only.
 - Not verified: visual check in a browser (no browser tool in this session).
 
+### M3a - PDF unlock and table extraction
+- `statements/pdf.py`: reads the ruled tables of every page into rows (same shape as CSV rows), so the confirmed column mapping works for both. Header rows repeated on each page are ignored. Errors: `pdf_password_required`, `pdf_password_invalid`, `pdf_unreadable`, `pdf_no_tables`.
+- `statements/passwords.py`: per-bank password in the macOS Keychain (`keyring`, service `TheAccountant`, account = bank id). Saved only after the password opened the file and `remember` is true; a wrong password never replaces the saved one; a saved password that stops working asks again. Never echoed in responses.
+- UI: password prompt with "Remember for this bank (macOS Keychain)" on by default; the password lives in component state only; preview sends it but never asks to remember.
+- Dependencies: `pdfplumber` 0.11.10, `keyring` 25.7.0; dev: `fpdf2` 2.9.0 builds synthetic (and encrypted) PDFs at test time, so no binary fixtures are committed. Tests use an in-memory keyring (autouse fixture), never the real Keychain.
+- Verified: `make verify` (137 backend tests; frontend 20 tests, typecheck, lint, build). Mutation checks (never saves, saves before unlock, ignores remember, no saved-password fallback, no ask-again, repeated header kept, remember off by default, preview remembers) each fail a test.
+- Not verified: against the real macOS Keychain (would write a real entry), or real bank PDFs. PDF statements are `unverifiable` until M3b extracts balances.
+
 ---
 
 ## Architecture decisions
@@ -101,6 +109,8 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 ---
 
 ## Next tasks
+
+- M3b: opening/closing balance extraction and reconciliation; per-bank PDF profiles for the 8 defaults, and text-only layouts (no ruled tables). Needs layout descriptions from the user (agents cannot read real statements).
 
 - **When development is done (user request, 2026-11-08):** add a Read deny rule for real statements back to `.claude/settings.json`. It was removed because `Read(./statements/**)` also matched `backend/app/statements/` and blocked the parser code. Re-add it in a form that only covers a root-level folder and confirm `backend/app/statements/` stays readable.
 
