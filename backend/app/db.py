@@ -72,6 +72,24 @@ def create_bank(
     return get_bank(connection, bank_id)
 
 
+def get_account(connection: sqlite3.Connection, account_id: int) -> sqlite3.Row | None:
+    return connection.execute(
+        "SELECT accounts.id, bank_id, type, accounts.name, csv_mapping, banks.currency,"
+        " banks.default_date_format"
+        " FROM accounts JOIN banks ON banks.id = accounts.bank_id WHERE accounts.id = ?",
+        (account_id,),
+    ).fetchone()
+
+
+def save_account_csv_mapping(
+    connection: sqlite3.Connection, account_id: int, csv_mapping_json: str
+) -> None:
+    with connection:
+        connection.execute(
+            "UPDATE accounts SET csv_mapping = ? WHERE id = ?", (csv_mapping_json, account_id)
+        )
+
+
 def list_accounts(connection: sqlite3.Connection, bank_id: str | None = None) -> list[sqlite3.Row]:
     query = "SELECT id, bank_id, type, name FROM accounts"
     params: tuple = ()
@@ -93,3 +111,103 @@ def create_account(
     return connection.execute(
         "SELECT id, bank_id, type, name FROM accounts WHERE id = ?", (cursor.lastrowid,)
     ).fetchone()
+
+
+_STATEMENT_COLUMNS = (
+    "SELECT statements.id, statements.account_id, accounts.bank_id, accounts.name AS account_name,"
+    " statement_files.filename, statements.currency, period_start, period_end,"
+    " reconciliation_status, row_count, imported_count, duplicate_count,"
+    " statement_files.uploaded_at"
+    " FROM statements"
+    " JOIN statement_files ON statement_files.id = statements.file_id"
+    " JOIN accounts ON accounts.id = statements.account_id"
+)
+
+
+def find_statement_id_by_sha256(connection: sqlite3.Connection, sha256: str) -> int | None:
+    row = connection.execute(
+        "SELECT statements.id FROM statements"
+        " JOIN statement_files ON statement_files.id = statements.file_id"
+        " WHERE statement_files.sha256 = ?",
+        (sha256,),
+    ).fetchone()
+    return row[0] if row else None
+
+
+def get_statement(connection: sqlite3.Connection, statement_id: int) -> sqlite3.Row | None:
+    return connection.execute(
+        _STATEMENT_COLUMNS + " WHERE statements.id = ?", (statement_id,)
+    ).fetchone()
+
+
+def list_statements(connection: sqlite3.Connection) -> list[sqlite3.Row]:
+    return connection.execute(_STATEMENT_COLUMNS + " ORDER BY statements.id DESC").fetchall()
+
+
+def create_statement(
+    connection: sqlite3.Connection,
+    *,
+    sha256: str,
+    filename: str,
+    mime: str,
+    file_bytes: bytes,
+    account_id: int,
+    currency: str,
+    period_start: str | None,
+    period_end: str | None,
+    reconciliation_status: str,
+    transactions: list[dict],
+) -> int:
+    """Store the file, the statement and its transactions in one database transaction.
+
+    Each transaction dict has row_index, date, amount_minor, description,
+    normalized_description, raw_row (JSON text) and fingerprint. Fingerprints already
+    stored (from an overlapping statement) are skipped and counted as duplicates.
+    Returns the new statement id.
+    """
+    with connection:
+        file_id = connection.execute(
+            "INSERT INTO statement_files (sha256, filename, mime, bytes) VALUES (?, ?, ?, ?)",
+            (sha256, filename, mime, file_bytes),
+        ).lastrowid
+        statement_id = connection.execute(
+            "INSERT INTO statements (file_id, account_id, currency, period_start, period_end,"
+            " reconciliation_status, row_count, imported_count, duplicate_count)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)",
+            (
+                file_id,
+                account_id,
+                currency,
+                period_start,
+                period_end,
+                reconciliation_status,
+                len(transactions),
+            ),
+        ).lastrowid
+        imported_count = 0
+        for transaction in transactions:
+            cursor = connection.execute(
+                "INSERT INTO transactions (statement_id, account_id, row_index, date,"
+                " amount_minor, currency, description, normalized_description, raw_row,"
+                " fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                # Only a repeated fingerprint is skipped; any other violation still raises.
+                " ON CONFLICT (fingerprint) DO NOTHING",
+                (
+                    statement_id,
+                    account_id,
+                    transaction["row_index"],
+                    transaction["date"],
+                    transaction["amount_minor"],
+                    currency,
+                    transaction["description"],
+                    transaction["normalized_description"],
+                    transaction["raw_row"],
+                    transaction["fingerprint"],
+                ),
+            )
+            imported_count += cursor.rowcount
+        connection.execute(
+            "UPDATE statements SET imported_count = ?, duplicate_count = ? WHERE id = ?",
+            (imported_count, len(transactions) - imported_count, statement_id),
+        )
+    return statement_id

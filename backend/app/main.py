@@ -1,3 +1,4 @@
+import hashlib
 import re
 import sqlite3
 from collections.abc import Iterator
@@ -5,13 +6,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app import __version__, db
 from app.config import REPO_ROOT, Settings
-from app.errors import ApiError, install_error_handlers
+from app.errors import ApiError, error_response, install_error_handlers
+from app.statements import csv_import
+from app.statements.csv_import import CsvError, CsvMapping
 from app.statements.dates import FORMATS
 
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
@@ -68,6 +71,38 @@ class AccountCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
 
 
+class Statement(BaseModel):
+    id: int
+    account_id: int
+    bank_id: str
+    account_name: str
+    filename: str
+    currency: Literal["USD", "INR"]
+    period_start: str | None
+    period_end: str | None
+    reconciliation_status: Literal["reconciled", "unreconciled", "unverifiable"]
+    row_count: int
+    imported_count: int
+    duplicate_count: int
+    uploaded_at: str
+
+
+class PreviewTransaction(BaseModel):
+    date: str
+    amount_minor: int
+    currency: Literal["USD", "INR"]
+    description: str
+
+
+class StatementPreview(BaseModel):
+    row_count: int
+    skipped_row_count: int
+    transactions: list[PreviewTransaction]
+
+
+PREVIEW_TRANSACTIONS = 20
+
+
 def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_DIST) -> FastAPI:
     settings = settings or Settings()
 
@@ -83,6 +118,17 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
     app = FastAPI(title="TheAccountant", version=__version__, lifespan=lifespan)
     app.state.settings = settings
     install_error_handlers(app)
+    max_upload_bytes = settings.max_upload_mb * 1024 * 1024
+
+    @app.middleware("http")
+    async def limit_upload_size(request: Request, call_next):
+        # Reject before the body is read, so an oversized upload is never buffered.
+        content_length = request.headers.get("content-length", "")
+        if content_length.isdigit() and int(content_length) > max_upload_bytes:
+            return error_response(
+                413, "payload_too_large", f"uploads are limited to {settings.max_upload_mb} MB"
+            )
+        return await call_next(request)
 
     @app.get("/api/health")
     def health(connection: Connection) -> dict:
@@ -132,6 +178,149 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
                 409, "account_exists", f"bank {body.bank_id!r} already has account {name!r}"
             ) from None
         return Account(**dict(row))
+
+    @app.post("/api/statements/preview")
+    def preview_statement(
+        connection: Connection,
+        file: Annotated[UploadFile, File()],
+        account_id: Annotated[int, Form()],
+        mapping: Annotated[str, Form()],
+    ) -> StatementPreview:
+        account = require_account(connection, account_id)
+        rows = read_csv_upload(file)
+        parsed, skipped = apply_mapping_or_422(rows, parse_mapping(mapping), account["currency"])
+        return StatementPreview(
+            row_count=len(parsed),
+            skipped_row_count=skipped,
+            transactions=[
+                PreviewTransaction(
+                    date=row.date,
+                    amount_minor=row.amount_minor,
+                    currency=account["currency"],
+                    description=row.description,
+                )
+                for row in parsed[:PREVIEW_TRANSACTIONS]
+            ],
+        )
+
+    @app.post("/api/statements", status_code=201)
+    def upload_statement(
+        connection: Connection,
+        file: Annotated[UploadFile, File()],
+        account_id: Annotated[int, Form()],
+        mapping: Annotated[str | None, Form()] = None,
+    ) -> Statement:
+        data = read_upload(file)
+        sha256 = hashlib.sha256(data).hexdigest()
+        existing_id = db.find_statement_id_by_sha256(connection, sha256)
+        if existing_id is not None:
+            raise ApiError(
+                409,
+                "duplicate_statement",
+                "this file was already imported",
+                {"statement_id": existing_id},
+            )
+        account = require_account(connection, account_id)
+        rows = csv_rows(data)
+        if mapping is not None:
+            confirmed = parse_mapping(mapping)
+            parsed, _ = apply_mapping_or_422(rows, confirmed, account["currency"])
+        else:
+            if account["csv_mapping"] is None:
+                raise mapping_required(rows, account, "map the CSV columns for this account")
+            saved = CsvMapping.model_validate_json(account["csv_mapping"])
+            try:
+                parsed, _ = csv_import.apply_mapping(rows, saved, account["currency"])
+            except CsvError as error:
+                if error.code != "csv_mapping_invalid":
+                    raise ApiError(422, error.code, str(error)) from None
+                # The bank changed its export layout: ask again rather than guess.
+                message = f"saved mapping no longer fits: {error}"
+                raise mapping_required(rows, account, message) from None
+
+        dates = [row.date for row in parsed]
+        statement_id = db.create_statement(
+            connection,
+            sha256=sha256,
+            filename=file.filename or "statement.csv",
+            mime=file.content_type or "text/csv",
+            file_bytes=data,
+            account_id=account_id,
+            currency=account["currency"],
+            period_start=min(dates),
+            period_end=max(dates),
+            # CSV exports carry no opening or closing balance to reconcile against.
+            reconciliation_status="unverifiable",
+            transactions=csv_import.to_transactions(parsed, account_id),
+        )
+        if mapping is not None:
+            # Saved only after the import succeeded with it: the user confirmed the preview.
+            db.save_account_csv_mapping(connection, account_id, confirmed.model_dump_json())
+        return Statement(**dict(db.get_statement(connection, statement_id)))
+
+    @app.get("/api/statements")
+    def list_statements(connection: Connection) -> list[Statement]:
+        return [Statement(**dict(row)) for row in db.list_statements(connection)]
+
+    @app.get("/api/statements/{statement_id}")
+    def get_statement(statement_id: int, connection: Connection) -> Statement:
+        row = db.get_statement(connection, statement_id)
+        if row is None:
+            raise ApiError(404, "statement_not_found", f"no statement with id {statement_id}")
+        return Statement(**dict(row))
+
+    def read_upload(file: UploadFile) -> bytes:
+        # The middleware rejects large requests by Content-Length; this catches chunked ones.
+        data = file.file.read(max_upload_bytes + 1)
+        if len(data) > max_upload_bytes:
+            raise ApiError(
+                413, "payload_too_large", f"uploads are limited to {settings.max_upload_mb} MB"
+            )
+        return data
+
+    def csv_rows(data: bytes) -> list[list[str]]:
+        if data.startswith(b"%PDF"):
+            raise ApiError(415, "unsupported_file_type", "PDF statements are not supported yet")
+        try:
+            return csv_import.read_rows(data)
+        except CsvError as error:
+            raise ApiError(422, error.code, str(error)) from None
+
+    def read_csv_upload(file: UploadFile) -> list[list[str]]:
+        return csv_rows(read_upload(file))
+
+    def require_account(connection: sqlite3.Connection, account_id: int) -> sqlite3.Row:
+        account = db.get_account(connection, account_id)
+        if account is None:
+            raise ApiError(404, "account_not_found", f"no account with id {account_id}")
+        return account
+
+    def parse_mapping(mapping: str) -> CsvMapping:
+        try:
+            return CsvMapping.model_validate_json(mapping)
+        except ValidationError as error:
+            first = error.errors()[0]
+            field = ".".join(str(part) for part in first["loc"]) or "mapping"
+            raise ApiError(422, "csv_mapping_invalid", f"{field}: {first['msg']}") from None
+
+    def apply_mapping_or_422(rows, mapping: CsvMapping, currency: str):
+        try:
+            return csv_import.apply_mapping(rows, mapping, currency)
+        except CsvError as error:
+            raise ApiError(422, error.code, str(error)) from None
+
+    def mapping_required(rows, account: sqlite3.Row, message: str) -> ApiError:
+        return ApiError(
+            422,
+            "csv_mapping_required",
+            message,
+            {
+                "rows": rows[: csv_import.SAMPLE_ROWS],
+                "suggested_mapping": csv_import.suggest_mapping(
+                    rows, account["default_date_format"]
+                ),
+            },
+        )
 
     # The built UI is served from the same process; absent until the frontend is built.
     # Registered last so every /api route wins.
