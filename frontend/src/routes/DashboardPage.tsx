@@ -75,6 +75,7 @@ export function DashboardPage() {
         setSummary(loadedSummary);
         setTransactions(loadedTransactions);
         setStatements(loadedStatements);
+        setLoadError(false);
       })
       .catch(() => setLoadError(true));
   }, [filters, spendingFilters, reloads]);

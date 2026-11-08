@@ -113,6 +113,23 @@ test("a range button filters from the start of that range", async () => {
   );
 });
 
+test("a load error goes away once the data loads again", async () => {
+  let calls = 0;
+  api({
+    "GET /api/summary": () =>
+      ++calls === 1
+        ? { status: 500, body: { error: { code: "internal", message: "down" } } }
+        : { body: SUMMARY },
+  });
+  renderAt("/dashboard?currency=USD");
+  expect(await screen.findByRole("alert")).toHaveTextContent("Could not load your data");
+
+  fireEvent.click(screen.getByRole("button", { name: "This year" }));
+
+  expect(await screen.findByText("GREENLEAF GROCERY")).toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
 test("transactions that did not match the statement are flagged and can be shown alone", async () => {
   api({
     "GET /api/transactions": {
