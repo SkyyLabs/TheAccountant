@@ -31,8 +31,7 @@ FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
 
 
 def get_connection(request: Request) -> Iterator[sqlite3.Connection]:
-    # One connection per request: sqlite3 connections must not be shared across the
-    # threads FastAPI runs sync endpoints on.
+    # One connection per request, never shared between requests.
     connection = db.connect(request.app.state.settings.database_path)
     try:
         yield connection
