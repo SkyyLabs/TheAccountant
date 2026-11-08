@@ -5,8 +5,8 @@
 > The code is authoritative. If this file and the code disagree, fix this file.
 
 **Last updated:** 2026-11-07
-**Current milestone:** M2 - Upload and CSV import
-**Next milestone:** M3 - PDF statements
+**Current milestone:** M3 - PDF statements
+**Next milestone:** M4 - Categorization
 **Default branch:** `dev`
 **Agent instructions:** synced from LLMTemplates (sky1502/LLMTemplates) `c1ace50` on 2026-11-07
 
@@ -62,6 +62,13 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - Verified: `make verify`; 8 mutation checks (occurrence index, card inversion, empty-amount skip, description normalization, SHA dedupe, mapping save, fingerprint conflict skip, PDF check) each fail a test.
 - Not verified: the size limit has two layers (Content-Length middleware, read cap in the route); the test passes with either alone, so neither is checked separately. Fixture layouts are modelled on common bank exports, not checked against real ones.
 
+### M2c - Upload UI and transactions table
+- Statements tab: bank picker (defaults plus "Other bank or card" with name and country), account picker or new account (type, name with a last-4-digits hint), CSV upload. A `csv_mapping_required` reply opens the mapping form: first lines of the file with the header line highlighted, column selects, amount mode, date format, Preview, then Import (enabled only for the mapping just previewed). Duplicate files say so with the existing statement id. Statements list with status as text plus a hint.
+- Transactions tab: all imported transactions newest first, amounts formatted per currency (`en-US` / `en-IN`), "Needs review" badge.
+- Backend: `GET /api/transactions` (unfiltered until M5); statement and transaction rows include `bank_name`; `csv_mapping_required` details include the allowed `date_formats`.
+- Verified: `make verify` (124 backend tests; frontend typecheck, lint, 16 tests, build). UI mutation checks (import without a fresh preview, INR grouping, duplicate message, status hint) each fail a test. Live smoke test on a throwaway database: mapping suggestion, import, 409 on re-upload, transactions listed, `/statements` served, listener on 127.0.0.1 only.
+- Not verified: visual check in a browser (no browser tool in this session).
+
 ---
 
 ## Architecture decisions
@@ -79,6 +86,7 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 | Money as integer minor units + currency; per-currency totals, no FX | Exact arithmetic; FX rates would need the internet | Floats; converting to one currency |
 | Date format and currency per bank profile | `DD/MM` vs `MM/DD` guessed per row silently swaps day and month | Per-row date detection |
 | PDF passwords remembered per bank in the macOS Keychain (`keyring`) | User asked to remember per bank; Keychain keeps them out of the plaintext DB at no UX cost | Storing in SQLite |
+| No shadcn/ui yet; plain semantic tables and inline forms | M2c needed no dialog, popover or combobox; avoids Radix, clsx and tailwind-merge until a screen does | Adding shadcn with the first table |
 | TypeScript pinned to 5.9.3 | `typescript-eslint` supports `<6.1`; TS 7 returns when lint tooling supports it | TypeScript 7 without type-aware lint |
 | No database encryption for MVP | Local only; FileVault encrypts the disk | SQLCipher now (see Future work) |
 | Branches: `dev` development, `stage` testing, `prod` release | User's workflow; no hosted deploy, so `prod` = tagged release run day to day | - |
@@ -95,7 +103,6 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 ## Next tasks
 
 - **When development is done (user request, 2026-11-08):** add a Read deny rule for real statements back to `.claude/settings.json`. It was removed because `Read(./statements/**)` also matched `backend/app/statements/` and blocked the parser code. Re-add it in a form that only covers a root-level folder and confirm `backend/app/statements/` stays readable.
-- M2c: upload dialog, mapping preview, statements list, basic transactions table.
 
 1. **M2 - Upload and CSV import:** file fingerprint dedupe; bank picker on first upload (defaults: Chase, Discover, Capital One, SoFi, ICICI, HDFC, SBI, Axis, plus "Other"); per-bank currency/date format/account type; CSV import with column mapping saved per bank.
 2. **M3 - PDF statements:** Keychain-backed password per bank, PDF text/table extraction, per-bank profiles for the defaults, LLM-proposed mapping for unknown layouts with user-confirmed preview, reconciliation, transaction-level dedupe.

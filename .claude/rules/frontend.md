@@ -12,5 +12,5 @@ Applies when touching `frontend/` (Vite + React + TypeScript + Tailwind + shadcn
 - **Never hide uncertainty:** `needs_review`, `unreconciled` and `unverifiable` are visible badges with an action, not colour alone.
 - **State:** local React state and URL params; add a data library (e.g. TanStack Query) only when caching across tabs needs it. `localStorage` holds UI preferences only - never financial data.
 - **Accessible by default:** labelled inputs, visible focus, keyboard-operable tables and dialogs, loading and empty states, clear errors.
-- **Versions:** TypeScript is pinned to 5.9.3 until `typescript-eslint` supports TS 7. shadcn/ui is added (via its CLI) with the first screen that needs dialogs or tables; Recharts with the Overview charts.
+- **Versions:** TypeScript is pinned to 5.9.3 until `typescript-eslint` supports TS 7. shadcn/ui is added (via its CLI) with the first screen that needs a dialog, popover or combobox (plain semantic tables until then); Recharts with the Overview charts.
 - Build the app; no landing page.
