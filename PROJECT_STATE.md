@@ -129,6 +129,12 @@ The user found the app too rigid and old-fashioned: no bank picker, account form
 - Verified: `make verify`; `make test-models` (OCR of a synthetic scan). Mutation checks on the checks (amount not checked, period not checked, made-up bank kept, made-up balance kept, direction ignored, rejections not counted, failed import blocking retry, remember ignored) and on the UI (charts counting transfers, currencies mixed, remember off by default, redirect after only failures, welcome not waiting) each fail a test; "remember ignored" and "redirect after only failures" survived first and their tests were fixed.
 - Not verified yet: the real model reading real or synthetic statements end to end (next step), visual check in a browser.
 
+### M6a - Merchant search with local embeddings (chat retrieval)
+- `llm/`: `embed(texts, query=)` on the provider interface; Ollama `/api/embed` with the model's task prefixes; the mock returns vectors a test sets (zero for anything else). `EMBEDDING_MODEL` default `embeddinggemma`.
+- Migration `0008`: `merchant_embeddings` (merchant key, model, unit-length float32 vector). `chat/merchants.py`: `embed_new_merchants` (after each import and before each search) and `find_merchants(term)`: similarity at least 0.34 and within 0.12 of the best match, plus whole-word matches on the name.
+- Measured on 60 synthetic merchants (US and India) and 12 terms: embeddinggemma with prefixes and both cutoffs, precision 0.95 and recall 0.90; with the fixed cutoff only 0.83 / 0.90; qwen3-embedding:0.6b and nomic-embed-text at best 0.68 / 0.74; embeddings plus qwen3:8b choosing among 15 candidates was worse (0.74 / 0.90, 1.6 s per term). Cutoffs were tuned on that set, so expect lower on real merchants; the chat shows which merchants it matched.
+- Verified: `make verify` (159 backend, 29 frontend). Mutation checks (no margin, no threshold, no word match, substring instead of whole word, unordered results, no embedding after import) each fail a test. Real Ollama embedding call checked with synthetic names.
+
 ---
 
 ## Architecture decisions
@@ -149,6 +155,7 @@ The user found the app too rigid and old-fashioned: no bank picker, account form
 | Spending excludes categories marked `excluded_from_spending` (Transfers, Card Payments) | A card payment is money out of the bank and money in on the card; counting it would double the purchases | Counting every transaction |
 | The LLM extracts transactions; code verifies each value against the statement text | User direction: the LLM is a helping hand in the core, not per-format code; verification and reconciliation keep numbers honest | Deterministic per-layout parsers with an LLM only for unknown layouts (M2-M3, PR #15) |
 | `qwen3:8b` as the default model | Best in a measured comparison (see R1); fits 18 GB | qwen2.5:7b, llama3.1:8b |
+| Chat retrieval over merchant names with `embeddinggemma`, vectors in SQLite, totals in SQL | Finds what a word means ("coffee") while every matching transaction is still counted; no new dependency | Top-k transactions in the prompt (misses rows, model sums), a vector database, LLM re-ranking (measured worse) |
 | No shadcn/ui; design tokens and a few component classes in `index.css` (WatchIt's look) | Same look as the user's other app without the component library | shadcn/ui |
 | TypeScript pinned to 5.9.3 | `typescript-eslint` supports `<6.1`; TS 7 returns when lint tooling supports it | TypeScript 7 without type-aware lint |
 | No database encryption for MVP | Local only; FileVault encrypts the disk | SQLCipher now (see Future work) |
@@ -171,7 +178,7 @@ The user found the app too rigid and old-fashioned: no bank picker, account form
 - **Accuracy review of financial readings (user request, 2026-11-08, after M4):** measure how accurate extraction, layout proposals and reconciliation are, and decide how to handle the gaps listed under M3b and M3c (wrapped descriptions, card sign ties, `Cr` card balances, layout proposal latency). Synthetic test layouts only so far; real-statement checks need the user.
 - **When development is done (user request, 2026-11-08):** add a Read deny rule for real statements back to `.claude/settings.json`. It was removed because `Read(./statements/**)` also matched `backend/app/statements/` and blocked the parser code. Re-add it in a form that only covers a root-level folder and confirm `backend/app/statements/` stays readable.
 
-1. **M6 - Chat:** fixed query tools over transactions; answers cite the filters used.
+1. **M6 - Chat:** M6a merchant search done; next M6b query tools, M6c `POST /api/chat`, M6d chat page.
 
 ## Future work
 

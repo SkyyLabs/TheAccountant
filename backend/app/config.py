@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     ollama_url: str = "http://127.0.0.1:11434"
     llm_provider: Literal["ollama", "mock"] = "ollama"
     llm_model: str = "qwen3:8b"
+    # Chosen by a measured comparison on 2026-11-08 (see PROJECT_STATE).
+    embedding_model: str = "embeddinggemma"
     port: int = 8765
     max_upload_mb: int = 25
     # Downloaded once by `make models`; Docling never fetches anything at runtime.

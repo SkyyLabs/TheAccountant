@@ -15,8 +15,9 @@ from pathlib import Path
 
 from app import db
 from app.categorize import categorizer
+from app.chat.merchants import embed_new_merchants
 from app.errors import ApiError
-from app.llm.base import LlmProvider, LlmUnavailable
+from app.llm.base import LlmError, LlmProvider, LlmUnavailable
 from app.statements import passwords, pdf
 from app.statements.extract import NothingFound, extract
 from app.statements.fingerprints import fingerprinted
@@ -196,6 +197,12 @@ def _run(connection, provider, started: Started, models_path: Path) -> None:
             passwords.save_password(bank_id, started.password)
     for statement_id in statement_ids:
         categorizer.categorize(connection, provider, statement_id)
+    try:
+        embed_new_merchants(connection, provider)  # ready for chat's merchant search
+    except LlmError:
+        logger.info(
+            "import %d: merchants not embedded, done before the next search", started.import_id
+        )
     # Done only once categorized, so the dashboard opens on finished figures.
     db.finish_import(
         connection, started.import_id, status="done", rejected_count=extraction.rejected

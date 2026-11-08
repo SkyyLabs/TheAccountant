@@ -22,4 +22,5 @@ Applies when touching `backend/app/db.py`, `backend/app/migrations/`, or any SQL
 - `transactions`: statement_id, account_id, row_index, date, amount_minor, currency, description, normalized_description, merchant_key, raw_row JSON, source (parser / llm), needs_review, fingerprint (unique)
 - `categories`: name (unique), region (US / IN / both), is_default, excluded_from_spending (Transfers and Card Payments by default, so a card payment is not counted as spending twice); `Uncategorized` cannot be renamed or deleted
 - `category_assignments`: transaction_id, category_id, source (rule / cache / llm / user), needs_review, created_at - latest row wins
+- `merchant_embeddings`: merchant_key, model (primary key together), vector (unit-length float32 BLOB) for chat's merchant search
 - `rules`: match type, pattern, optional amount range, category_id, priority

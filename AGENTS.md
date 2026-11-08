@@ -49,7 +49,7 @@ backend/                 FastAPI app, Python 3.12, bound to 127.0.0.1 only
                          fingerprints (dedupe), reconciliation, money, passwords (Keychain)
   app/categorize/        rules → cached result → LLM
   app/llm/               provider interface, Ollama provider, deterministic mock
-  app/chat/              question → fixed query tools → answer
+  app/chat/              merchants (embedding search over merchant names), then question → fixed query tools → answer
   tests/
 frontend/                Vite + React + TypeScript 5.9 + Tailwind 4 + Recharts + lucide-react; Geist font bundled
 data/                    gitignored: accountant.db (the only datastore)
@@ -109,4 +109,4 @@ Domain detail lives in focused files. **Read the relevant one before editing tha
 
 ## Config
 
-Backend config via `.env` at repo root, `DATABASE_PATH` (default `<repo>/data/accountant.db`), `OLLAMA_URL` (default `http://127.0.0.1:11434`), `LLM_PROVIDER` (`ollama` | `mock`), `LLM_MODEL`, `PORT` (default `8765`). No secrets live in `.env`; bank passwords are in the Keychain.
+Backend config via `.env` at repo root, `DATABASE_PATH` (default `<repo>/data/accountant.db`), `OLLAMA_URL` (default `http://127.0.0.1:11434`), `LLM_PROVIDER` (`ollama` | `mock`), `LLM_MODEL` (default `qwen3:8b`), `EMBEDDING_MODEL` (default `embeddinggemma`; `ollama pull` both once), `PORT` (default `8765`). No secrets live in `.env`; bank passwords are in the Keychain.
