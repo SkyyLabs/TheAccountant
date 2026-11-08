@@ -21,7 +21,7 @@ Bias toward caution over speed. For trivial tasks, use judgment.
 
 ## Commands
 
-The app skeleton and `Makefile` arrive in milestone M1. Until then none of these exist - do not claim to have run them.
+Backend targets exist now. The frontend half of `setup`/`run`/`dev` and the frontend checks in `verify` arrive with the M1 frontend shell; until then these commands cover the backend only.
 
 ```bash
 make setup     # venv on Python 3.12 + backend deps + frontend deps
@@ -105,4 +105,4 @@ Domain detail lives in focused files. **Read the relevant one before editing tha
 
 ## Config
 
-Backend config via `.env` at repo root, documented in `.env.example`: `DATABASE_PATH` (default `data/accountant.db`), `OLLAMA_URL` (default `http://127.0.0.1:11434`), `LLM_PROVIDER` (`ollama` | `mock`), `LLM_MODEL`, `PORT` (default `8765`). No secrets live in `.env`; bank passwords are in the Keychain.
+Backend config via `.env` at repo root, `DATABASE_PATH` (default `<repo>/data/accountant.db`), `OLLAMA_URL` (default `http://127.0.0.1:11434`), `LLM_PROVIDER` (`ollama` | `mock`), `LLM_MODEL`, `PORT` (default `8765`). No secrets live in `.env`; bank passwords are in the Keychain.

@@ -12,7 +12,7 @@ cd frontend && npx vitest run src/components/transactions/Filters.test.tsx   # o
 make verify                                                       # full check sequence, required before claiming done
 ```
 
-Tests need no services: no Ollama, no network, no real database. They use `LLM_PROVIDER=mock` and a temporary SQLite file per test (the `db` fixture in `backend/tests/conftest.py`).
+Tests need no services: no Ollama, no network, no real database. They use `LLM_PROVIDER=mock` and a temporary SQLite file per test (the `settings` and `client` fixtures in `backend/tests/conftest.py`).
 
 ## Where tests live and how they are named
 
