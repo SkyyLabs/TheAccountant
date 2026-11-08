@@ -8,7 +8,7 @@
 **Current milestone:** M0 - Repository and workflow
 **Next milestone:** M1 - App skeleton
 **Default branch:** `dev`
-**Agent instructions:** synced from LLMTemplates (sky1502/LLMTemplates) `0a5ef55` on 2026-11-07
+**Agent instructions:** synced from LLMTemplates (sky1502/LLMTemplates) `c1ace50` on 2026-11-07
 
 ---
 
