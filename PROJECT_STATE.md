@@ -5,8 +5,8 @@
 > The code is authoritative. If this file and the code disagree, fix this file.
 
 **Last updated:** 2026-11-07
-**Current milestone:** M5 - Transactions and Overview (after the accuracy review)
-**Next milestone:** M6 - Chat
+**Current milestone:** M6 - Chat
+**Next milestone:** M7 - Receipt photos
 **Default branch:** `dev`
 **Agent instructions:** synced from LLMTemplates (sky1502/LLMTemplates) `c1ace50` on 2026-11-07
 
@@ -114,6 +114,13 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - Verified: `make verify` (211 backend, 36 frontend tests, build). Mutation checks (signed amount filter, exclusive end date, no LIKE escaping, totals not grouped by currency, summary ignoring filters, typed sign kept, only first category in the URL, totals ignoring filters) each fail a test; "typed sign kept" survived at first and a negative-amount test was added.
 - Not done: the list has no paging (fine at personal scale); text inputs fetch on every keystroke.
 
+### M5b - Overview charts
+- Migration `0005`: `categories.excluded_from_spending` (Transfers and Card Payments by default; toggle "Not spending" in the Categories tab). `spending_only` filter on the transaction list and summary; uncategorized transactions still count.
+- Overview tab: same filter bar as Transactions plus "Leave out Transfers and Card Payments" (on by default). One section per currency: money out, money in, count; bar chart by month (in and out); top 10 categories by money out. Charts are `aria-hidden`; each has a "Show as table" alternative.
+- Dependencies: `recharts` 3.10.1 and its peer `react-is` 19.3.1 (exact). Bundle 686 kB (202 kB gzip); URLs in it are library error-message links only, nothing is fetched.
+- Verified: `make verify` (214 backend, 42 frontend tests, build). Mutation checks (spending filter ignored, uncategorized dropped from spending, transfers counted by default, categories mixed across currencies, totals from another currency) each fail a test.
+- Not verified: the charts rendered in a browser (jsdom does not lay out SVG; tests check the table alternatives).
+
 ---
 
 ## Architecture decisions
@@ -131,6 +138,7 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 | Money as integer minor units + currency; per-currency totals, no FX | Exact arithmetic; FX rates would need the internet | Floats; converting to one currency |
 | Date format and currency per bank profile | `DD/MM` vs `MM/DD` guessed per row silently swaps day and month | Per-row date detection |
 | PDF passwords remembered per bank in the macOS Keychain (`keyring`) | User asked to remember per bank; Keychain keeps them out of the plaintext DB at no UX cost | Storing in SQLite |
+| Spending excludes categories marked `excluded_from_spending` (Transfers, Card Payments) | A card payment is money out of the bank and money in on the card; counting it would double the purchases | Counting every transaction |
 | No shadcn/ui yet; plain semantic tables and inline forms | M2c needed no dialog, popover or combobox; avoids Radix, clsx and tailwind-merge until a screen does | Adding shadcn with the first table |
 | TypeScript pinned to 5.9.3 | `typescript-eslint` supports `<6.1`; TS 7 returns when lint tooling supports it | TypeScript 7 without type-aware lint |
 | No database encryption for MVP | Local only; FileVault encrypts the disk | SQLCipher now (see Future work) |
@@ -150,9 +158,8 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - **Accuracy review of financial readings (user request, 2026-11-08, after M4):** measure how accurate extraction, layout proposals and reconciliation are, and decide how to handle the gaps listed under M3b and M3c (wrapped descriptions, card sign ties, `Cr` card balances, layout proposal latency). Synthetic test layouts only so far; real-statement checks need the user.
 - **When development is done (user request, 2026-11-08):** add a Read deny rule for real statements back to `.claude/settings.json`. It was removed because `Read(./statements/**)` also matched `backend/app/statements/` and blocked the parser code. Re-add it in a form that only covers a root-level folder and confirm `backend/app/statements/` stays readable.
 
-1. **M5 - Transactions and Overview:** filters (date range, category, amount range, account, currency), editable categories, charts by month and category.
-2. **M6 - Chat:** fixed query tools over transactions; answers cite the filters used.
-3. **M7 - Receipt photos:** `llama3.2-vision` (scanned statements are already handled by Docling + Vision OCR in M3b).
+1. **M6 - Chat:** fixed query tools over transactions; answers cite the filters used.
+2. **M7 - Receipt photos:** `llama3.2-vision` (scanned statements are already handled by Docling + Vision OCR in M3b).
 
 ## Future work
 

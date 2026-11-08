@@ -62,6 +62,14 @@ export function CategoriesPage() {
       return `Renamed to ${category.name}.`;
     }, "Could not rename the category");
 
+  const toggleSpending = (category: Category, excluded: boolean) =>
+    run(async () => {
+      const updated = await api.setExcludedFromSpending(category.id, excluded);
+      return updated.excluded_from_spending
+        ? `${updated.name} is now left out of spending totals.`
+        : `${updated.name} now counts as spending.`;
+    }, "Could not change the category");
+
   const removeCategory = (category: Category) =>
     run(async () => {
       await api.deleteCategory(category.id);
@@ -212,6 +220,10 @@ export function CategoriesPage() {
       )}
 
       <h2 className="mt-8 text-lg font-semibold">Categories</h2>
+      <p className="mt-1 max-w-prose text-sm text-slate-600 dark:text-slate-400">
+        Tick “Not spending” for money moving between your own accounts (transfers, card
+        payments). The Overview leaves those out so nothing is counted twice.
+      </p>
       <form
         className="mt-2 grid gap-2 sm:grid-cols-3 sm:items-end"
         onSubmit={(event) => {
@@ -277,6 +289,16 @@ export function CategoriesPage() {
               <span className="min-w-40 font-medium">{category.name}</span>
             )}
             <span className="text-slate-500">{REGION_LABEL[category.region]}</span>
+            {category.name !== "Uncategorized" && (
+              <label className="flex items-center gap-1 text-slate-600 dark:text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={category.excluded_from_spending}
+                  onChange={(event) => toggleSpending(category, event.target.checked)}
+                />
+                Not spending
+              </label>
+            )}
             {category.name !== "Uncategorized" && renaming?.id !== category.id && (
               <>
                 <button

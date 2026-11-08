@@ -68,6 +68,7 @@ def transaction_filters(
     amount_min: str | None = None,
     amount_max: str | None = None,
     q: str | None = None,
+    spending_only: bool = False,
 ) -> db.TransactionFilters:
     """Shared by the transaction list and the summary, so both always agree."""
     return db.TransactionFilters(
@@ -79,6 +80,7 @@ def transaction_filters(
         amount_min_minor=_amount_filter("amount_min", amount_min),
         amount_max_minor=_amount_filter("amount_max", amount_max),
         text=q.strip() if q and q.strip() else None,
+        spending_only=spending_only,
     )
 
 
@@ -224,6 +226,7 @@ class Category(BaseModel):
     name: str
     region: Literal["US", "IN", "both"]
     is_default: bool
+    excluded_from_spending: bool
 
 
 class CategoryCreate(BaseModel):
@@ -232,7 +235,8 @@ class CategoryCreate(BaseModel):
 
 
 class CategoryUpdate(BaseModel):
-    name: str = Field(min_length=1, max_length=60)
+    name: str | None = Field(default=None, min_length=1, max_length=60)
+    excluded_from_spending: bool | None = None
 
 
 class Rule(BaseModel):
@@ -511,13 +515,18 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
             raise ApiError(409, "category_exists", f"a category named {name!r} exists") from None
 
     @app.patch("/api/categories/{category_id}")
-    def rename_category(category_id: int, body: CategoryUpdate, connection: Connection) -> Category:
+    def update_category(category_id: int, body: CategoryUpdate, connection: Connection) -> Category:
         category = require_category(connection, category_id)
         if category["name"] == categorizer.UNCATEGORIZED:
-            raise ApiError(409, "category_protected", "Uncategorized cannot be renamed")
-        name = body.name.strip()
+            raise ApiError(409, "category_protected", "Uncategorized cannot be changed")
+        name = body.name.strip() if body.name is not None else None
         try:
-            db.rename_category(connection, category_id, name)
+            db.update_category(
+                connection,
+                category_id,
+                name=name,
+                excluded_from_spending=body.excluded_from_spending,
+            )
         except sqlite3.IntegrityError:
             raise ApiError(409, "category_exists", f"a category named {name!r} exists") from None
         return Category(**dict(db.get_category(connection, category_id)))

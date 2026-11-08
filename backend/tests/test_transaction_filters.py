@@ -184,3 +184,13 @@ def test_uncategorized_transactions_are_grouped_together(client, two_currencies)
 
 def test_negative_typed_amount_filters_by_size_too(client, two_currencies):
     assert descriptions(client, amount_min="-1,000", currency="USD") == ["EXAMPLE ELECTRONICS"]
+
+
+def test_spending_only_leaves_out_card_payments_but_keeps_uncategorized(client, two_currencies):
+    totals = client.get("/api/summary", params={"spending_only": "true"}).json()["totals"]
+
+    # USD loses the 500.00 card payment (money in); INR was never categorized and stays.
+    assert [(t["currency"], t["money_in_minor"], t["transaction_count"]) for t in totals] == [
+        ("INR", 15000000, 3),
+        ("USD", 0, 3),
+    ]

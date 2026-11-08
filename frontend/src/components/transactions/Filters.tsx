@@ -12,6 +12,7 @@ export const FILTER_KEYS = [
   "amount_min",
   "amount_max",
   "q",
+  "spending_only",
 ] as const;
 
 /** The filter part of the page URL, in a stable order, ready to send to the backend. */
