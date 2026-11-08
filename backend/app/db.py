@@ -513,10 +513,12 @@ def get_transaction(connection: sqlite3.Connection, transaction_id: int) -> sqli
 def uncategorized_transactions(
     connection: sqlite3.Connection, statement_id: int | None = None
 ) -> list[sqlite3.Row]:
-    """Transactions with no category assignment yet, with their bank's country."""
+    """Transactions with no category assignment yet, with their account type and their
+    bank's country."""
     query = (
         "SELECT transactions.id, transactions.statement_id, transactions.description,"
-        " transactions.amount_minor, transactions.currency, banks.country"
+        " transactions.amount_minor, transactions.currency, banks.country,"
+        " accounts.type AS account_type"
         " FROM transactions JOIN accounts ON accounts.id = transactions.account_id"
         " JOIN banks ON banks.id = accounts.bank_id"
         " WHERE NOT EXISTS (SELECT 1 FROM category_assignments"

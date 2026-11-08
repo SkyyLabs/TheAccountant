@@ -326,3 +326,140 @@ def test_the_real_last_four_of_an_account_number_is_kept(client, upload):
     )
 
     assert result["statements"][0]["account_name"] == "••4321"
+
+
+RUNNING_BALANCE_STATEMENT = (
+    b"Example Bank Checking 1111\nOpening balance 1,000.00\n"
+    b"03/04 GREENLEAF GROCERY | 42.10 | 957.90\n"
+    b"03/05 PAYROLL ACME | 2,000.00 | 2,957.90\n"
+    b"03/06 CITY WATER | 57.90 | 2,900.00\n"
+    b"Closing balance 2,900.00\n"
+)
+RUNNING_BALANCE_ACCOUNT = account_answer(
+    bank_name="Example Bank", last4="1111", opening="1,000.00", closing="2,900.00"
+)
+
+
+def needs_review_by_description(client) -> dict[str, bool]:
+    return {t["description"]: t["needs_review"] for t in client.get("/api/transactions").json()}
+
+
+def test_rows_that_follow_their_running_balance_do_not_need_review(client, upload):
+    upload(
+        RUNNING_BALANCE_STATEMENT,
+        accounts=[RUNNING_BALANCE_ACCOUNT],
+        transactions=[
+            transaction_answer("2026-03-04", "GREENLEAF GROCERY", "42.10", "out", "1111", "957.90"),
+            transaction_answer("2026-03-05", "PAYROLL ACME", "2,000.00", "in", "1111", "2,957.90"),
+            transaction_answer("2026-03-06", "CITY WATER", "57.90", "out", "1111", "2,900.00"),
+        ],
+    )
+
+    assert needs_review_by_description(client) == {
+        "GREENLEAF GROCERY": False,
+        "PAYROLL ACME": False,
+        "CITY WATER": False,
+    }
+
+
+def test_row_whose_sign_breaks_the_running_balance_needs_review(client, upload):
+    upload(
+        RUNNING_BALANCE_STATEMENT,
+        accounts=[RUNNING_BALANCE_ACCOUNT],
+        transactions=[
+            transaction_answer("2026-03-04", "GREENLEAF GROCERY", "42.10", "out", "1111", "957.90"),
+            # Money in, read as money out.
+            transaction_answer("2026-03-05", "PAYROLL ACME", "2,000.00", "out", "1111", "2,957.90"),
+            transaction_answer("2026-03-06", "CITY WATER", "57.90", "out", "1111", "2,900.00"),
+        ],
+    )
+
+    assert needs_review_by_description(client) == {
+        "GREENLEAF GROCERY": False,
+        "PAYROLL ACME": True,
+        "CITY WATER": False,
+    }
+
+
+def test_rows_without_a_printed_balance_are_checked_with_the_next_one(client, upload):
+    upload(
+        RUNNING_BALANCE_STATEMENT,
+        accounts=[RUNNING_BALANCE_ACCOUNT],
+        transactions=[
+            transaction_answer("2026-03-04", "GREENLEAF GROCERY", "42.10", "in", "1111"),
+            transaction_answer("2026-03-05", "PAYROLL ACME", "2,000.00", "in", "1111", "2,957.90"),
+            transaction_answer("2026-03-06", "CITY WATER", "57.90", "out", "1111", "2,900.00"),
+        ],
+    )
+
+    assert needs_review_by_description(client) == {
+        "GREENLEAF GROCERY": True,
+        "PAYROLL ACME": True,
+        "CITY WATER": False,
+    }
+
+
+def test_running_balance_not_in_the_statement_is_ignored(client, upload):
+    upload(
+        RUNNING_BALANCE_STATEMENT,
+        accounts=[RUNNING_BALANCE_ACCOUNT],
+        transactions=[
+            transaction_answer("2026-03-04", "GREENLEAF GROCERY", "42.10", "out", "1111", "123.45"),
+        ],
+    )
+
+    assert needs_review_by_description(client) == {"GREENLEAF GROCERY": False}
+
+
+def test_row_put_on_the_wrong_account_breaks_its_running_balance(client, upload):
+    content = (
+        b"Example Bank\nChecking 1111 opening 1,000.00\nSavings 2222 opening 5,000.00\n"
+        b"03/05 TRANSFER TO SAVINGS | 100.00 | 900.00\n"
+        b"03/05 TRANSFER FROM CHECKING | 100.00 | 5,100.00\n"
+    )
+    upload(
+        content,
+        accounts=[
+            account_answer(bank_name="Example Bank", last4="1111", opening="1,000.00"),
+            account_answer(bank_name="Example Bank", last4="2222", opening="5,000.00"),
+        ],
+        transactions=[
+            transaction_answer(
+                "2026-03-05", "TRANSFER TO SAVINGS", "100.00", "out", "1111", "900.00"
+            ),
+            # A savings row, put on checking.
+            transaction_answer(
+                "2026-03-05", "TRANSFER FROM CHECKING", "100.00", "in", "1111", "5,100.00"
+            ),
+        ],
+    )
+
+    assert needs_review_by_description(client) == {
+        "TRANSFER TO SAVINGS": False,
+        "TRANSFER FROM CHECKING": True,
+    }
+
+
+def test_card_balance_owed_goes_up_with_a_charge(client, upload):
+    content = (
+        b"Example Card 4410\nPrevious balance 500.00\n"
+        b"03/04 GREENLEAF GROCERY | 42.10 | 542.10\n"
+        b"03/09 PAYMENT THANK YOU | 200.00 | 342.10\n"
+    )
+    upload(
+        content,
+        accounts=[
+            account_answer(
+                bank_name="Example Card", last4="4410", account_type="credit_card", opening="500.00"
+            )
+        ],
+        transactions=[
+            transaction_answer("2026-03-04", "GREENLEAF GROCERY", "42.10", "out", "4410", "542.10"),
+            transaction_answer("2026-03-09", "PAYMENT THANK YOU", "200.00", "in", "4410", "342.10"),
+        ],
+    )
+
+    assert needs_review_by_description(client) == {
+        "GREENLEAF GROCERY": False,
+        "PAYMENT THANK YOU": False,
+    }

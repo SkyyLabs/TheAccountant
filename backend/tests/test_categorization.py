@@ -202,3 +202,11 @@ def test_correction_to_unknown_category_is_not_found(client, upload):
     response = client.patch(f"/api/transactions/{transaction_id}", json={"category_id": 999})
 
     assert response.json()["error"]["code"] == "category_not_found"
+
+
+def test_the_model_is_told_whether_money_moved_on_a_card_or_a_bank_account(client, upload):
+    # Money in on a card is almost always a bill payment; on a bank account it is not.
+    import_march(upload)
+
+    (question,) = category_questions(client)
+    assert '"PAYMENT THANK YOU" (money in on a credit card, USD)' in question

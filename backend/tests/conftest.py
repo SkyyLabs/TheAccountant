@@ -98,13 +98,14 @@ def account_answer(
     }
 
 
-def transaction_answer(date, description, amount, direction, last4=None) -> dict:
+def transaction_answer(date, description, amount, direction, last4=None, balance=None) -> dict:
     return {
         "date": date,
         "description": description,
         "amount": amount,
         "direction": direction,
         "account_last4": last4,
+        "balance": balance,
     }
 
 
