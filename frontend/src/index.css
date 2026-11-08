@@ -1,7 +1,95 @@
 @import "tailwindcss";
+/* Bundled at build time: the app makes no network requests for fonts. */
+@import "@fontsource-variable/geist";
 
-/* System font stack only: the app is fully offline, no web fonts. */
+/* Semantic colours (same scheme as WatchIt): indigo primary, soft tinted surfaces. */
 :root {
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  color-scheme: light dark;
+  color-scheme: light;
+  --background: oklch(0.985 0.004 277);
+  --foreground: oklch(0.21 0.02 277);
+  --card: oklch(1 0 0);
+  --muted: oklch(0.968 0.008 277);
+  --muted-foreground: oklch(0.552 0.02 277);
+  --primary: oklch(0.511 0.24 277);
+  --primary-foreground: oklch(0.985 0.01 277);
+  --accent: oklch(0.95 0.03 277);
+  --accent-foreground: oklch(0.4 0.15 277);
+  --success: oklch(0.6 0.13 163);
+  --warning: oklch(0.72 0.16 66);
+  --destructive: oklch(0.577 0.245 27);
+  --border: oklch(0.92 0.008 277);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --background: oklch(0.17 0.02 277);
+    --foreground: oklch(0.97 0.01 277);
+    --card: oklch(0.215 0.025 277);
+    --muted: oklch(0.27 0.02 277);
+    --muted-foreground: oklch(0.72 0.03 277);
+    --primary: oklch(0.64 0.2 277);
+    --primary-foreground: oklch(0.16 0.03 277);
+    --accent: oklch(0.32 0.06 277);
+    --accent-foreground: oklch(0.9 0.05 277);
+    --success: oklch(0.7 0.15 163);
+    --warning: oklch(0.8 0.16 75);
+    --destructive: oklch(0.704 0.191 22);
+    --border: oklch(1 0 0 / 12%);
+  }
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --animate-rise: rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+}
+
+@layer components {
+  /* A card: white surface, hairline ring, generous padding (WatchIt's Card). */
+  .card {
+    @apply rounded-xl bg-card ring-1 ring-foreground/10;
+  }
+  .field {
+    @apply w-full rounded-lg border bg-card px-3 py-2 text-sm outline-none transition focus:ring-2 focus:ring-primary/40;
+  }
+  .button-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50;
+  }
+  .button-quiet {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border bg-card px-4 py-2 text-sm font-medium transition hover:bg-muted focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

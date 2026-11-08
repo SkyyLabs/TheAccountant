@@ -1,19 +1,15 @@
 // The only module that talks to the backend. Same origin in production, Vite proxy in dev.
 import type {
   Account,
-  AccountType,
   ApiErrorBody,
-  Bank,
   Category,
-  Country,
-  CsvMapping,
   Health,
+  Import,
   Region,
   RuleCreated,
   RuleInput,
   Rule,
   Statement,
-  StatementPreview,
   Summary,
   Transaction,
   TransactionCorrected,
@@ -57,59 +53,29 @@ function postJson<T>(path: string, body: unknown): Promise<T> {
   return sendJson<T>("POST", path, body);
 }
 
-export type StatementUnlock = { password: string; remember: boolean };
-
 function query(filters: string): string {
   return filters ? `?${filters}` : "";
 }
 
-function statementForm(
-  file: File,
-  accountId: number,
-  mapping?: CsvMapping,
-  unlock?: StatementUnlock,
-): FormData {
+function importForm(file: File, password?: string, remember = true): FormData {
   const form = new FormData();
   form.append("file", file);
-  form.append("account_id", String(accountId));
-  if (mapping) form.append("mapping", JSON.stringify(mapping));
-  if (unlock) {
-    form.append("password", unlock.password);
-    form.append("remember", String(unlock.remember));
+  if (password) {
+    form.append("password", password);
+    form.append("remember", String(remember));
   }
   return form;
 }
 
 export const api = {
   health: () => request<Health>("/health"),
-  listBanks: () => request<Bank[]>("/banks"),
-  createBank: (name: string, country: Country) => postJson<Bank>("/banks", { name, country }),
-  listAccounts: (bankId?: string) =>
-    request<Account[]>(bankId ? `/accounts?bank_id=${encodeURIComponent(bankId)}` : "/accounts"),
-  createAccount: (bankId: string, type: AccountType, name: string) =>
-    postJson<Account>("/accounts", { bank_id: bankId, type, name }),
+  listAccounts: () => request<Account[]>("/accounts"),
   listStatements: () => request<Statement[]>("/statements"),
-  uploadStatement: (
-    file: File,
-    accountId: number,
-    mapping?: CsvMapping,
-    unlock?: StatementUnlock,
-  ) =>
-    request<Statement>("/statements", {
-      method: "POST",
-      body: statementForm(file, accountId, mapping, unlock),
-    }),
-  previewStatement: (
-    file: File,
-    accountId: number,
-    mapping: CsvMapping,
-    unlock?: StatementUnlock,
-  ) =>
-    request<StatementPreview>("/statements/preview", {
-      method: "POST",
-      // Preview never saves the password; only a successful upload does.
-      body: statementForm(file, accountId, mapping, unlock && { ...unlock, remember: false }),
-    }),
+  /** Upload one statement; the local model reads it in the background (poll getImport). */
+  uploadImport: (file: File, password?: string, remember = true) =>
+    request<Import>("/imports", { method: "POST", body: importForm(file, password, remember) }),
+  getImport: (importId: number) => request<Import>(`/imports/${importId}`),
+  listImports: () => request<Import[]>("/imports"),
   /** `filters` uses the same parameter names as the page URL (see FILTER_KEYS). */
   listTransactions: (filters = "") => request<Transaction[]>(`/transactions${query(filters)}`),
   summary: (filters = "") => request<Summary>(`/summary${query(filters)}`),

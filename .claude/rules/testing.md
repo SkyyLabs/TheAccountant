@@ -66,16 +66,16 @@ Preference order: real implementation, then fake, then stub, then mock.
 ## Integrity (non-negotiable)
 
 - **Never weaken, delete, skip (`skip`, `xfail`, `.only`, commenting out) or loosen a test to make it pass** without telling the user explicitly and why.
-- **Never hard-code values or special-case fixture inputs** in parsers or profiles. A bank profile must work for any statement in that layout, not just the fixture.
+- **Never hard-code values or special-case fixture inputs.** There is no per-bank code; nothing in `app/` may know a specific statement layout.
 - If a test looks wrong, or the task cannot be done without breaking one, stop and say so.
 - Tests never call Ollama, never read `data/accountant.db`, and never use real statements.
 - "Tests pass" requires evidence: the command and its output, including how many tests ran. Zero tests collected is a failure.
 
 ## Always test in this project
 
-- Every bank profile: its synthetic fixture parses to the expected transactions **and reconciles**.
+- Reading a statement: the mock LLM's answers that do not match the statement text (amount, date outside the period, bank, account number, balance) are flagged or dropped, never trusted.
 - Money parsing to integer minor units with the right sign, for every format listed above.
-- Date parsing per bank format, including the day/month swap case.
+- Dates come back ISO and are checked against the statement period.
 - Reconciliation: balanced, unbalanced (difference reported) and no-balance (`unverifiable`) statements.
 - Duplicates: same file twice; overlapping statements; genuine identical transactions within one statement are kept.
 - Categorization order: rule beats stored result beats LLM; invalid LLM output becomes `Uncategorized` + `needs_review`.

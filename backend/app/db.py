@@ -1,5 +1,6 @@
 """The single SQLite repository layer. All SQL in the app lives in this module."""
 
+import re
 import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,7 +10,9 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 def connect(database_path: Path) -> sqlite3.Connection:
     database_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(database_path)
+    # Used by one request at a time, but FastAPI may hand it from the thread that opened it
+    # (the dependency) to another (the endpoint).
+    connection = sqlite3.connect(database_path, check_same_thread=False)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA journal_mode = WAL")
@@ -27,16 +30,27 @@ def migrate(connection: sqlite3.Connection, migrations_dir: Path = MIGRATIONS_DI
     migration leaves the database at the previous version. Returns the new version.
     """
     current = schema_version(connection)
-    for path in sorted(migrations_dir.glob("[0-9][0-9][0-9][0-9]_*.sql")):
-        number = int(path.name[:4])
-        if number <= current:
-            continue
-        if number != current + 1:
-            raise RuntimeError(f"migration {path.name} skips version {current + 1}")
-        script = path.read_text()
-        # executescript commits any open transaction first, so BEGIN/COMMIT live in the script.
-        connection.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {number};\nCOMMIT;")
-        current = number
+    # Table rebuilds (SQLite's way to change a constraint) need foreign keys off while they
+    # run; every migration is checked for broken references before it commits.
+    connection.execute("PRAGMA foreign_keys = OFF")
+    try:
+        for path in sorted(migrations_dir.glob("[0-9][0-9][0-9][0-9]_*.sql")):
+            number = int(path.name[:4])
+            if number <= current:
+                continue
+            if number != current + 1:
+                raise RuntimeError(f"migration {path.name} skips version {current + 1}")
+            script = path.read_text()
+            # executescript commits any open transaction first, so BEGIN lives in the script.
+            connection.executescript(f"BEGIN;\n{script}\nPRAGMA user_version = {number};")
+            broken = connection.execute("PRAGMA foreign_key_check").fetchall()
+            if broken:
+                connection.execute("ROLLBACK")
+                raise RuntimeError(f"migration {path.name} breaks {len(broken)} references")
+            connection.execute("COMMIT")
+            current = number
+    finally:
+        connection.execute("PRAGMA foreign_keys = ON")
     return current
 
 
@@ -80,6 +94,12 @@ def get_account(connection: sqlite3.Connection, account_id: int) -> sqlite3.Row 
         " FROM accounts JOIN banks ON banks.id = accounts.bank_id WHERE accounts.id = ?",
         (account_id,),
     ).fetchone()
+
+
+def get_account_bank(connection: sqlite3.Connection, account_id: int) -> str:
+    return connection.execute(
+        "SELECT bank_id FROM accounts WHERE id = ?", (account_id,)
+    ).fetchone()[0]
 
 
 def save_account_csv_mapping(
@@ -135,6 +155,119 @@ _STATEMENT_COLUMNS = (
 )
 
 
+_IMPORT_COLUMNS = (
+    "SELECT id, filename, status, progress_done, progress_total, error, rejected_count,"
+    " uploaded_at FROM statement_files"
+)
+
+
+def create_import(
+    connection: sqlite3.Connection, *, sha256: str, filename: str, mime: str, file_bytes: bytes
+) -> int:
+    """Store an uploaded file as an import in progress."""
+    with connection:
+        return connection.execute(
+            "INSERT INTO statement_files (sha256, filename, mime, bytes, status)"
+            " VALUES (?, ?, ?, ?, 'processing')",
+            (sha256, filename, mime, file_bytes),
+        ).lastrowid
+
+
+def find_import_by_sha256(connection: sqlite3.Connection, sha256: str) -> sqlite3.Row | None:
+    return connection.execute(_IMPORT_COLUMNS + " WHERE sha256 = ?", (sha256,)).fetchone()
+
+
+def delete_failed_import(connection: sqlite3.Connection, import_id: int) -> None:
+    """A failed import has no statements; removing it lets the same file be tried again."""
+    with connection:
+        connection.execute(
+            "DELETE FROM statement_files WHERE id = ? AND status = 'failed'", (import_id,)
+        )
+
+
+def import_file_bytes(connection: sqlite3.Connection, import_id: int) -> bytes:
+    return connection.execute(
+        "SELECT bytes FROM statement_files WHERE id = ?", (import_id,)
+    ).fetchone()[0]
+
+
+def set_import_progress(
+    connection: sqlite3.Connection, import_id: int, done: int, total: int
+) -> None:
+    with connection:
+        connection.execute(
+            "UPDATE statement_files SET progress_done = ?, progress_total = ? WHERE id = ?",
+            (done, total, import_id),
+        )
+
+
+def finish_import(
+    connection: sqlite3.Connection,
+    import_id: int,
+    *,
+    status: str,
+    error: str | None = None,
+    rejected_count: int = 0,
+) -> None:
+    with connection:
+        connection.execute(
+            "UPDATE statement_files SET status = ?, error = ?, rejected_count = ? WHERE id = ?",
+            (status, error, rejected_count, import_id),
+        )
+
+
+def list_imports(connection: sqlite3.Connection) -> list[sqlite3.Row]:
+    return connection.execute(_IMPORT_COLUMNS + " ORDER BY id DESC").fetchall()
+
+
+def get_import(connection: sqlite3.Connection, import_id: int) -> sqlite3.Row | None:
+    return connection.execute(_IMPORT_COLUMNS + " WHERE id = ?", (import_id,)).fetchone()
+
+
+def find_or_create_bank(
+    connection: sqlite3.Connection, name: str, country: str, currency: str
+) -> str:
+    """The bank whose name matches (a default bank's name inside the statement's, e.g.
+    "HDFC Bank" in "HDFC BANK Ltd."), or a new one under the name as printed."""
+    lowered = name.lower()
+    for row in list_banks(connection):
+        if row["name"].lower() in lowered or row["id"].replace("_", " ") in lowered.split():
+            return row["id"]
+    bank_id = re.sub(r"[^a-z0-9]+", "_", lowered).strip("_") or "unknown_bank"
+    with connection:
+        connection.execute(
+            "INSERT OR IGNORE INTO banks (id, name, country, currency, default_date_format)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (bank_id, name, country, currency, "YYYY-MM-DD"),
+        )
+    # The name may already exist under another id: return whichever row holds it.
+    return connection.execute(
+        "SELECT id FROM banks WHERE id = ? OR name = ? ORDER BY id = ? DESC LIMIT 1",
+        (bank_id, name, bank_id),
+    ).fetchone()[0]
+
+
+def statement_ids_for_file(connection: sqlite3.Connection, sha256: str) -> list[int]:
+    return [
+        row[0]
+        for row in connection.execute(
+            "SELECT statements.id FROM statements"
+            " JOIN statement_files ON statement_files.id = statements.file_id"
+            " WHERE statement_files.sha256 = ? ORDER BY statements.id",
+            (sha256,),
+        )
+    ]
+
+
+def find_or_create_account(
+    connection: sqlite3.Connection, bank_id: str, account_type: str, name: str
+) -> int:
+    row = connection.execute(
+        "SELECT id FROM accounts WHERE bank_id = ? AND name = ?", (bank_id, name)
+    ).fetchone()
+    return row[0] if row else create_account(connection, bank_id, account_type, name)["id"]
+
+
 def find_statement_id_by_sha256(connection: sqlite3.Connection, sha256: str) -> int | None:
     row = connection.execute(
         "SELECT statements.id FROM statements"
@@ -149,6 +282,12 @@ def get_statement(connection: sqlite3.Connection, statement_id: int) -> sqlite3.
     return connection.execute(
         _STATEMENT_COLUMNS + " WHERE statements.id = ?", (statement_id,)
     ).fetchone()
+
+
+def statements_of_import(connection: sqlite3.Connection, import_id: int) -> list[sqlite3.Row]:
+    return connection.execute(
+        _STATEMENT_COLUMNS + " WHERE statements.file_id = ? ORDER BY statements.id", (import_id,)
+    ).fetchall()
 
 
 def list_statements(connection: sqlite3.Connection) -> list[sqlite3.Row]:
@@ -171,8 +310,10 @@ def create_statement(
     reconciliation_status: str,
     reconciliation_difference_minor: int | None,
     transactions: list[dict],
+    file_id: int | None = None,
 ) -> int:
-    """Store the file, the statement and its transactions in one database transaction.
+    """Store the file (unless file_id names one already stored), the statement and its
+    transactions in one database transaction.
 
     Each transaction dict has row_index, date, amount_minor, description,
     normalized_description, raw_row (JSON text) and fingerprint. Fingerprints already
@@ -180,10 +321,11 @@ def create_statement(
     Returns the new statement id.
     """
     with connection:
-        file_id = connection.execute(
-            "INSERT INTO statement_files (sha256, filename, mime, bytes) VALUES (?, ?, ?, ?)",
-            (sha256, filename, mime, file_bytes),
-        ).lastrowid
+        if file_id is None:
+            file_id = connection.execute(
+                "INSERT INTO statement_files (sha256, filename, mime, bytes) VALUES (?, ?, ?, ?)",
+                (sha256, filename, mime, file_bytes),
+            ).lastrowid
         statement_id = connection.execute(
             "INSERT INTO statements (file_id, account_id, currency, period_start, period_end,"
             " opening_balance_minor, closing_balance_minor, reconciliation_status,"
@@ -207,7 +349,7 @@ def create_statement(
             cursor = connection.execute(
                 "INSERT INTO transactions (statement_id, account_id, row_index, date,"
                 " amount_minor, currency, description, normalized_description, raw_row,"
-                " fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                " fingerprint, needs_review) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 # Only a repeated fingerprint is skipped; any other violation still raises.
                 " ON CONFLICT (fingerprint) DO NOTHING",
                 (
@@ -221,6 +363,7 @@ def create_statement(
                     transaction["normalized_description"],
                     transaction["raw_row"],
                     transaction["fingerprint"],
+                    int(transaction.get("needs_review", False)),
                 ),
             )
             imported_count += cursor.rowcount
@@ -229,6 +372,12 @@ def create_statement(
             (imported_count, len(transactions) - imported_count, statement_id),
         )
     return statement_id
+
+
+def statement_file_id(connection: sqlite3.Connection, statement_id: int) -> int:
+    return connection.execute(
+        "SELECT file_id FROM statements WHERE id = ?", (statement_id,)
+    ).fetchone()[0]
 
 
 _TRANSACTION_FROM = (

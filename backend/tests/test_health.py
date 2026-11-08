@@ -2,7 +2,7 @@ def test_health_reports_ok_and_migrated_schema(client):
     response = client.get("/api/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.1.0", "schema_version": 5}
+    assert response.json() == {"status": "ok", "version": "0.1.0", "schema_version": 7}
 
 
 def test_unknown_api_route_uses_the_single_error_shape(client):

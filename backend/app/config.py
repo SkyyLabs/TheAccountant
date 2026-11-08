@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     database_path: Path = REPO_ROOT / "data" / "accountant.db"
     ollama_url: str = "http://127.0.0.1:11434"
     llm_provider: Literal["ollama", "mock"] = "ollama"
-    llm_model: str = "qwen2.5:7b"
+    llm_model: str = "qwen3:8b"
     port: int = 8765
     max_upload_mb: int = 25
     # Downloaded once by `make models`; Docling never fetches anything at runtime.
