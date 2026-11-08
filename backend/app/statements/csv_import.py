@@ -24,8 +24,8 @@ SAMPLE_ROWS = 30
 
 DATE_HEADERS = ("transaction date", "txn date", "trans. date", "date", "posting date", "post date")
 DESCRIPTION_HINTS = ("description", "narration", "particulars", "details", "remarks", "memo")
-DEBIT_HINTS = ("debit", "withdrawal")
-CREDIT_HINTS = ("credit", "deposit")
+DEBIT_HINTS = ("debit", "withdrawal", "money out", "paid out")
+CREDIT_HINTS = ("credit", "deposit", "money in", "paid in")
 
 
 class CsvMapping(BaseModel):
@@ -114,18 +114,30 @@ def suggest_mapping(rows: list[list[str]], default_date_format: str) -> dict:
         (header for wanted in DATE_HEADERS for header in headers if lowered[header] == wanted),
         None,
     ) or first(lambda name: "date" in name)
-    debit_column = first(lambda name: any(hint in name for hint in DEBIT_HINTS))
-    credit_column = first(lambda name: any(hint in name for hint in CREDIT_HINTS))
-    separate = bool(debit_column and credit_column and debit_column != credit_column)
     return {
         "header_row": header_row,
         "date_column": date_column,
         "description_column": first(lambda name: any(h in name for h in DESCRIPTION_HINTS)),
+        **amount_columns(headers),
+        "date_format": default_date_format,
+    }
+
+
+def amount_columns(headers: list[str]) -> dict:
+    """amount_mode and its columns, guessed from header names."""
+    named = [header for header in headers if header]
+
+    def first(hints: tuple[str, ...]) -> str | None:
+        return next((h for h in named if any(hint in h.lower() for hint in hints)), None)
+
+    debit_column = first(DEBIT_HINTS)
+    credit_column = first(CREDIT_HINTS)
+    separate = bool(debit_column and credit_column and debit_column != credit_column)
+    return {
         "amount_mode": "debit_credit" if separate else "signed",
-        "amount_column": None if separate else first(lambda name: "amount" in name),
+        "amount_column": None if separate else first(("amount",)),
         "debit_column": debit_column if separate else None,
         "credit_column": credit_column if separate else None,
-        "date_format": default_date_format,
     }
 
 

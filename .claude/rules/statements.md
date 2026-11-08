@@ -19,11 +19,14 @@ Applies when touching `backend/app/statements/` - upload, fingerprinting, PDF un
 
 - Default banks: **US** Chase, Discover, Capital One, SoFi · **India** ICICI, HDFC, SBI, Axis. Each has a profile: id, display name, country, currency, date format, account types (bank / credit card), and parsing rules for CSV and PDF layouts.
 - Any other bank is supported through the generic path: the parser extracts candidate tables/rows, the LLM proposes a field mapping, the user confirms a preview, and the confirmed mapping is saved as a new profile. The next upload from that bank uses the saved profile with no LLM call.
-- The first upload for a bank asks which bank it is and, if the PDF is encrypted, the password (see `security.md`).
+- No bank or account is asked for: `statements/understand.py` reads them from the file (bank name and last 4 digits must appear in it) and `importer.py` creates or reuses the bank and account. Only an encrypted PDF can need input: its password (see `security.md`).
+- One PDF can hold several accounts (checking and savings together): one statement per account, `UNIQUE (file_id, account_id)`.
 
 ## Extraction
 
-- Deterministic first: CSV columns, PDF text and tables (`pdfplumber`/`pypdf`). The LLM is used only to map an unknown layout, never as the source of an amount or date when a parser can read it.
+- Deterministic first: PDF transaction lines (`lines.py`), CSV columns, PDF tables (pdfplumber, Docling, word positions). The LLM names columns, balance labels and the bank; it is never the source of an amount or date.
+- Dates without a year (`12/08`) take the year from the statement period printed on the statement; if there is none, the line reader refuses rather than guessing.
+- With a running balance, the sign of each amount comes from the balance change and each row is checked against it; a row that does not fit is marked `needs_review` and the statement `unreconciled`.
 - Any value that came from the LLM is stored with `source = 'llm'` and `needs_review = 1` until the user confirms it.
 - Keep the raw extracted row alongside the normalized transaction so re-parsing after a parser fix needs no re-upload.
 

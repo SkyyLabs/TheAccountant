@@ -57,14 +57,17 @@ data/                    gitignored: accountant.db (the only datastore)
 
 ### Upload flow (load-bearing path)
 
-1. UI uploads a file. Backend computes a SHA-256 of the bytes; an already-imported file is reported as a duplicate and not reprocessed.
-2. First upload for a bank: the UI asks which bank (default list or "Other") and, if the PDF is encrypted, its password. The password goes to the macOS Keychain, keyed by bank.
-3. The parser for that bank extracts transactions deterministically (CSV columns, PDF text/tables). Unknown layouts: the LLM proposes a column/field mapping, the user confirms a preview, and the mapping is saved as that bank's profile.
-4. Reconciliation: opening balance + transactions must equal closing balance (cards: previous balance + charges − payments/credits = new balance). Mismatch → statement flagged, nothing silently accepted.
-5. Transactions are de-duplicated by fingerprint (account, date, amount, normalized description) so overlapping statements do not double count.
-6. Categorization: user rules first, then stored results, then the LLM constrained to the category list. Corrections are saved and offered as new rules.
+The user uploads files and nothing else (user decision, 2026-11-08): no bank picker, no account form, no column mapping. `POST /api/imports` -> `statements/importer.py`.
 
-UI tabs: **Overview** (charts), **Transactions** (filterable, editable table), **Statements** (uploads, status, reprocess), **Categories & Rules**, **Chat**.
+1. SHA-256 of the bytes; an already-imported file is reported (409) with its statement ids.
+2. Encrypted PDF: tried with every bank's saved Keychain password; otherwise the UI asks for the password, which is saved under the bank found in the file once it opened it.
+3. Whose statement: patterns first (bank names, masked account numbers, file names, card/bank wording), the local LLM only for what they miss. The bank name and last 4 digits are accepted only if they appear in the file.
+4. How to read it: PDF transaction lines (`lines.py`: one section per account, running-balance check per row), else tables (pdfplumber, Docling, word positions) with the LLM-proposed layout settled by code; CSV through the layout proposal. A known account's saved layout is reused with no LLM call.
+5. Reconciliation per account: opening + transactions = closing (cards: previous - transactions = new) and, where printed, every row's running balance. Anything that does not check out is stored but flagged (`unreconciled`, rows `needs_review`), never silently trusted or "fixed".
+6. De-duplication by transaction fingerprint, so overlapping statements do not double count.
+7. Categorization in the background: rules, stored results, then the LLM constrained to the category list.
+
+UI (redesign in progress, user direction 2026-11-08): welcome screen, then a single upload screen (one or more files), then a dashboard with charts, filters and the categorized transactions, with "upload more" always at hand. Categories & Rules and Chat stay as secondary screens.
 
 ## Specialist rules (`.claude/rules/`)
 

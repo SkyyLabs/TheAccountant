@@ -183,3 +183,36 @@ def test_balance_label_without_a_readable_amount_is_replaced_by_a_known_label():
 
     assert suggestion["closing_balance_label"] == "closing balance"
     assert suggestion["opening_balance_label"] == "Opening Balance"
+
+
+def test_layout_that_drops_dated_rows_loses_to_one_that_reads_them():
+    rows = [
+        ["Beginning Balance", "$2,000.00", "", ""],
+        ["Posted", "Payee", "Money Out", "Money In"],
+        ["03/04/2026", "GREENLEAF GROCERY", "42.10", ""],
+        ["03/09/2026", "EXAMPLE PAYROLL", "", "1,500.00"],
+        ["Ending Balance", "$3,457.90", "", ""],
+    ]
+    provider = MockProvider()
+    # "Money Out" as a signed amount column: parses, but skips the payroll row.
+    provider.script(
+        {
+            **GOOD_ANSWER,
+            "header_line": 2,
+            "date_column": "Posted",
+            "description_column": "Payee",
+            "amount_mode": "signed",
+            "amount_column": "Money Out",
+            "debit_column": None,
+            "credit_column": None,
+            "opening_balance_label": "Beginning Balance",
+            "closing_balance_label": "Ending Balance",
+        }
+    )
+
+    suggestion, _ = propose_layout(
+        rows, provider, account_type="bank", currency="USD", default_date_format="MM/DD/YYYY"
+    )
+
+    assert suggestion["amount_mode"] == "debit_credit"
+    assert (suggestion["debit_column"], suggestion["credit_column"]) == ("Money Out", "Money In")

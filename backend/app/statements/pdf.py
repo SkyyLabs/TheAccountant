@@ -54,6 +54,14 @@ def read_rows(data: bytes, password: str | None, docling_models_path: Path) -> l
     return rows
 
 
+def read_text(data: bytes, password: str | None) -> str:
+    """The PDF's text layer, page by page in reading order (empty for a scan). Raises the
+    same password errors as read_rows."""
+    unlocked = _unlock(data, password)
+    with pdfplumber.open(io.BytesIO(unlocked)) as document:
+        return "\n".join(page.extract_text() or "" for page in document.pages)
+
+
 def _has_table(rows: list[list[str]]) -> bool:
     return any(len([cell for cell in row if cell]) > 1 for row in rows)
 

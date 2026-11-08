@@ -21,6 +21,14 @@ SYSTEM = """You categorize personal bank and credit-card transactions.
 For each transaction pick exactly one category from the allowed list. Use the description
 and whether money went out or came in. If no category fits or you are unsure, choose
 "Uncategorized" and a low confidence. Confidence is between 0 and 1.
+Categories that are easy to confuse:
+- Card Payments: paying a credit card bill ("payment to card", "autopay", "payment thank you",
+  "e-payment" to a card issuer). Not income, even when money comes in on the card.
+- Transfers: money moved between the person's own accounts or wallets (online transfer,
+  to/from savings, Venmo or PayPal cash-out, IMPS/NEFT to self).
+- Groceries: supermarkets and grocery delivery (BigBasket, Instacart, Whole Foods).
+- Dining: restaurants, cafes and cooked-food delivery (Swiggy, Zomato, DoorDash, Uber Eats).
+- Subscriptions: recurring digital services (streaming, music, software, Prime).
 Answer with JSON only."""
 
 

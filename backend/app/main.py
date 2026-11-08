@@ -26,7 +26,7 @@ from app.categorize import categorizer
 from app.config import REPO_ROOT, Settings
 from app.errors import ApiError, error_response, install_error_handlers
 from app.llm import get_llm_provider
-from app.statements import csv_import, layout, passwords, pdf
+from app.statements import csv_import, importer, layout, passwords, pdf
 from app.statements.csv_import import CsvError, CsvMapping
 from app.statements.dates import FORMATS
 from app.statements.money import AmountError, parse_amount
@@ -146,6 +146,11 @@ class Statement(BaseModel):
     duplicate_count: int
     categorization_status: Literal["pending", "done", "llm_unavailable"]
     uploaded_at: str
+
+
+class Imported(BaseModel):
+    # One per account found in the file (a PDF can hold checking and savings together).
+    statements: list[Statement]
 
 
 class PreviewTransaction(BaseModel):
@@ -451,6 +456,31 @@ def create_app(settings: Settings | None = None, frontend_dist: Path = FRONTEND_
         # Categorizing can take a while with the LLM; the UI polls categorization_status.
         background.add_task(run_categorization, statement_id)
         return Statement(**dict(db.get_statement(connection, statement_id)))
+
+    @app.post("/api/imports", status_code=201)
+    def import_statement(
+        connection: Connection,
+        background: BackgroundTasks,
+        file: Annotated[UploadFile, File()],
+        password: Annotated[str | None, Form()] = None,
+        remember: Annotated[bool, Form()] = True,
+    ) -> Imported:
+        """Upload a statement and nothing else: the bank, accounts and layout are read from
+        the file. Only an encrypted PDF can need something more: its password."""
+        statement_ids = importer.import_file(
+            connection,
+            app.state.llm,
+            filename=file.filename or "statement",
+            data=read_upload(file),
+            password=password,
+            remember=remember,
+            docling_models_path=settings.docling_models_path,
+        )
+        for statement_id in statement_ids:
+            background.add_task(run_categorization, statement_id)
+        return Imported(
+            statements=[Statement(**dict(db.get_statement(connection, i))) for i in statement_ids]
+        )
 
     @app.get("/api/statements")
     def list_statements(connection: Connection) -> list[Statement]:

@@ -121,6 +121,16 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 - Verified: `make verify` (214 backend, 42 frontend tests, build). Mutation checks (spending filter ignored, uncategorized dropped from spending, transfers counted by default, categories mixed across currencies, totals from another currency) each fail a test.
 - Not verified: the charts rendered in a browser (jsdom does not lay out SVG; tests check the table alternatives).
 
+### R1 - Upload with no questions (redesign, backend)
+User direction (2026-11-08): no bank picker, account form or column mapping; upload files, the local AI does the rest; a modern UI (R2).
+- `POST /api/imports` (file, optional password): `statements/importer.py` finds whose statement it is (`understand.py`: patterns first, LLM for the gaps; bank name and last 4 accepted only if present in the file, including the file name), reads it, creates or reuses bank and account, stores one statement per account, categorizes in the background. Encrypted PDFs are tried with every saved password; a typed password is saved under the bank found in the file.
+- `statements/lines.py`: deterministic reader for PDFs whose transactions are text lines (most US bank PDFs): sections per account between beginning/ending balance lines, yearless dates placed with the statement period, wrapped descriptions joined, page furniture ignored, signs from the running balance and every row checked against it. Built against the layout of a real Chase checking-and-savings statement the user shared in chat (2026-11-08); the repo holds only a synthetic look-alike (`tests/fixtures/chase_like_statement.py`).
+- Layout choice: the LLM's layout competes with header-name candidates; the one that reconciles, then the one that drops no dated rows, wins (caught "Money Out" read as the only amount column).
+- Migration `0006`: statements unique per (file, account); the migration runner now disables foreign keys during a migration and runs `foreign_key_check` before commit (SQLite's table-rebuild procedure).
+- Model: `qwen3:8b` (default, `think: false`). Measured on 6 synthetic statements (bank, account, layout) and 30 labelled merchants: qwen3:8b 6/6 and 30/30 after prompt hints for confusable categories; qwen2.5:7b 5/6 and 23/30; llama3.1:8b 4/6 and 25/30 (before the hints). The hints were tuned on this set, so real accuracy will be lower.
+- Verified: `make verify` (default suite); mutation checks (card sign, row breaks ignored, saved layout not reused, remember ignored, made-up bank accepted, balance check disabled, rebuild with foreign keys on) each fail a test. A no-op control mutation exposed a flaky fixture (fpdf2 stamps the time) and the creation date is now pinned. Live server with real qwen3: the synthetic Chase PDF imported as two reconciled accounts in under 8 s, categorized in 17 s.
+- Not verified: the real Chase PDF itself (agents do not read real statements); the user can drop it into the app. Old explicit endpoints (`/api/statements`, `/api/banks`, `/api/accounts`, preview) remain until the redesign no longer needs them.
+
 ---
 
 ## Architecture decisions
@@ -139,6 +149,8 @@ Explicitly out of scope for now: taxes, bank-sync APIs (Plaid etc.), email parsi
 | Date format and currency per bank profile | `DD/MM` vs `MM/DD` guessed per row silently swaps day and month | Per-row date detection |
 | PDF passwords remembered per bank in the macOS Keychain (`keyring`) | User asked to remember per bank; Keychain keeps them out of the plaintext DB at no UX cost | Storing in SQLite |
 | Spending excludes categories marked `excluded_from_spending` (Transfers, Card Payments) | A card payment is money out of the bank and money in on the card; counting it would double the purchases | Counting every transaction |
+| Upload needs no input except a PDF password; bank, account and layout are read from the file and checked against it | User direction: no setup steps; reconciliation and running balances catch misreads instead of a confirmation screen | Bank picker and mapping preview (M2/M3) |
+| `qwen3:8b` as the default model | Best on the measured comparison (see R1); fits 18 GB | qwen2.5:7b, llama3.1:8b |
 | No shadcn/ui yet; plain semantic tables and inline forms | M2c needed no dialog, popover or combobox; avoids Radix, clsx and tailwind-merge until a screen does | Adding shadcn with the first table |
 | TypeScript pinned to 5.9.3 | `typescript-eslint` supports `<6.1`; TS 7 returns when lint tooling supports it | TypeScript 7 without type-aware lint |
 | No database encryption for MVP | Local only; FileVault encrypts the disk | SQLCipher now (see Future work) |
